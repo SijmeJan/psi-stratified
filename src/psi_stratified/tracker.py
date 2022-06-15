@@ -21,6 +21,7 @@ class ModeTracker():
                                          L=self.sb.L,
                                          n_dust=self.sb.n_dust,
                                          sparse_flag=True,
+                                         use_PETSc=True,
                                          sigma=sigma,
                                          n_eig=1)
                 higher_N = self.sb.N + 50
