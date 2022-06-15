@@ -1,0 +1,132 @@
+import numpy as np
+
+class ModeTracker():
+    def __init__(self, strat_box):
+        self.sb = strat_box
+
+    def safe_step(self, sigma, maxN=600):
+        self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
+                                 N=self.sb.N,
+                                 L=self.sb.L,
+                                 n_dust=self.sb.n_dust,
+                                 sparse_flag=True,
+                                 sigma=sigma,
+                                 n_eig=1)
+        if len(np.atleast_1d(self.sb.eig)) == 0:
+            higher_N = self.sb.N + 50
+            while (len(np.atleast_1d(self.sb.eig)) == 0 and higher_N <= maxN):
+                self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
+                                         N=higher_N,
+                                         L=self.sb.L,
+                                         n_dust=self.sb.n_dust,
+                                         sparse_flag=True,
+                                         sigma=sigma,
+                                         n_eig=1)
+                higher_N = self.sb.N + 50
+
+            if len(np.atleast_1d(self.sb.eig)) == 0:
+                print('Forcing closest eigenvalue at highest res')
+
+                self.sb.eig = self.sb.di.eval_hires
+        else:
+            if self.sb.N > 50:
+                self.sb.N = self.sb.N - 50
+
+        # Select closest to sigma
+        e = np.atleast_1d(self.sb.eig)
+        k = np.argmin(np.abs(e - sigma))
+        return self.sb.eig[k]
+
+    def track(self):
+        pass
+
+
+class WaveNumberTracker(ModeTracker):
+    def track(self, wave_numbers, starting_ev, maxN=600):
+        # Wavenumbers to evaluate modes at
+        kx = np.atleast_1d(wave_numbers)
+
+        # Starting eigenvalues, corresponding to wave_numbers[0]
+        ev = np.atleast_1d(starting_ev)
+
+        ret = np.zeros((len(ev), len(kx)), dtype=np.cdouble)
+        ret[:,0] = ev
+
+        # Make adaptive k step?
+        # Approximation for dlambda/dk
+        # Expect lambda = dlambda/dk *dk
+        # If too different, reduce dk
+        for j in range(0, len(ev)):
+            for i in range(1, len(kx)):
+                self.sb.kx = kx[i]
+
+                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
+
+                print(i, self.sb.N, kx[i], ret[j, i])
+
+        return ret
+
+class StokesRangeTracker(ModeTracker):
+    def track(self, stokes_min, stokes_max, starting_ev, maxN=600):
+        #print('Starting tracker...')
+
+        st_min = np.atleast_1d(stokes_min)
+        st_max = np.atleast_1d(stokes_max)
+
+        # Starting eigenvalues, corresponding to wave_numbers[0]
+        ev = np.atleast_1d(starting_ev)
+
+        ret = np.zeros((len(ev), len(st_max)), dtype=np.cdouble)
+        ret[:,0] = ev
+
+        for j in range(0, len(ev)):
+            for i in range(1, len(st_max)):
+                #print('Setting Stokes Range...')
+                self.sb.set_stokes_range([st_min[i], st_max[i]])
+
+                #print('Performing safe step...')
+                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
+
+
+                print(i, self.sb.N, st_min[i], st_max[i], ret[j,i])
+                #print(self.sb.eig, self.sb.vec)
+        return ret
+
+class DustFluidTracker(ModeTracker):
+    def track(self, n_dust, starting_ev, maxN=600):
+        n_dust = np.atleast_1d(n_dust)
+
+        # Starting eigenvalues, corresponding to wave_numbers[0]
+        ev = np.atleast_1d(starting_ev)
+
+        ret = np.zeros((len(ev), len(n_dust)), dtype=np.cdouble)
+        ret[:,0] = ev
+
+        for j in range(0, len(ev)):
+            for i in range(1, len(n_dust)):
+                self.sb.set_n_dust(n_dust[i])
+
+                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
+
+                print(i, self.sb.N, n_dust[i], ret[j,i])
+        return ret
+
+class ViscosityTracker(ModeTracker):
+    def track(self, viscous_alpha, starting_ev, maxN=600):
+        viscous_alpha = np.atleast_1d(viscous_alpha)
+
+        # Starting eigenvalues, corresponding to wave_numbers[0]
+        ev = np.atleast_1d(starting_ev)
+
+        ret = np.zeros((len(ev), len(viscous_alpha)), dtype=np.cdouble)
+        ret[:,0] = ev
+
+        for j in range(0, len(ev)):
+            for i in range(1, len(viscous_alpha)):
+                self.sb.set_viscosity(viscous_alpha[i])
+                self.sb.L = 0.006*np.sqrt(viscous_alpha[i]/1.0e-6)
+
+                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
+
+                print(i, self.sb.N, viscous_alpha[i], ret[j,i])
+        return ret
