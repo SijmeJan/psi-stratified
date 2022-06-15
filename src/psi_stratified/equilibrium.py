@@ -138,9 +138,6 @@ class EquilibriumBase():
             # All tau's
             ret = np.zeros((self.n_dust, len(z)))
 
-            #print('Hallo:', self.tau, self.stokes_density.sigma(self.tau))
-            #print(self.stokes_density.integrate(lambda x: 1), self.tau*self.weights*self.stokes_density.sigma(self.tau), integrate.quad(self.stokes_density.sigma, self.stokes_density.stokes_min, self.stokes_density.stokes_max))
-
             for i in range(0, self.n_dust):
                 ret[i, :] = self.mu*self.stokes_density.sigma(self.tau[i])*np.exp(-0.5*self.beta(self.tau[i])*z*z/self.diff(self.tau[i]))
 
