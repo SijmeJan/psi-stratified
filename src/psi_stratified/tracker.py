@@ -11,6 +11,7 @@ class ModeTracker():
                                  L=self.sb.L,
                                  n_dust=self.sb.n_dust,
                                  sparse_flag=True,
+                                 use_PETSc=True,
                                  sigma=sigma,
                                  n_eig=1)
         if len(np.atleast_1d(self.sb.eig)) == 0:
