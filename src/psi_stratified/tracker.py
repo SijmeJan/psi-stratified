@@ -1,8 +1,9 @@
 import numpy as np
 
 class ModeTracker():
-    def __init__(self, strat_box):
+    def __init__(self, strat_box, filename=None):
         self.sb = strat_box
+        self.filename = filename
 
     def safe_step(self, sigma, maxN=600):
         self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
@@ -35,6 +36,7 @@ class ModeTracker():
         # Select closest to sigma
         e = np.atleast_1d(self.sb.eig)
         k = np.argmin(np.abs(e - sigma))
+
         return self.sb.eig[k]
 
     def track(self):
@@ -62,7 +64,12 @@ class WaveNumberTracker(ModeTracker):
 
                 ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
 
-                print(i, self.sb.N, kx[i], ret[j, i])
+                # Save to file.
+                # Not sure how to do it with other parameters than wavenumber?
+                if self.filename is not None:
+                    self.sb.save(self.filename)
+
+                print(i, self.sb.N, kx[i], ret[j, i], flush=True)
 
         return ret
 
