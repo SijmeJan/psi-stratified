@@ -12,7 +12,7 @@ class StratBox():
                  viscous_alpha,
                  stokes_density_dict=None,
                  neglect_gas_viscosity=True):
-        # Disctionary containing parameters
+        # Dictionary containing parameters
         self.param = {}
 
         # Physical setup dictionary
@@ -24,9 +24,6 @@ class StratBox():
 
         # Set number of dust sizes to invalid
         self.n_dust = -1
-
-        # Create StokesDensity
-        #self.sigma = StokesDensity(stokes_range, stokes_density_dict)
 
         # Create direct solver
         self.di = DirectSolver(interval=[-np.inf, np.inf],
@@ -90,6 +87,17 @@ class StratBox():
         # Need to recalculate background
         self.solve_background(-1)
 
+    def set_viscosity(self, viscous_alpha,
+                      neglect_gas_viscosity=True):
+        self.param['viscous_alpha'] = viscous_alpha
+        self.param['neglect_gas_viscosity'] = bool(neglect_gas_viscosity)
+
+        # Need to recalculate background
+        self.solve_background(-1)
+
+    def set_n_dust(self, n_dust):
+        self.solve_background(n_dust)
+
     def solve_background(self, n_dust, N_back=1000):
         if self.n_dust != n_dust or n_dust < 0:
             if n_dust < 0:
@@ -119,6 +127,7 @@ class StratBox():
 
     def find_eigenvalues(self, wave_number_x, N, L=1, n_dust=1,
                          sparse_flag=False, sigma=None, n_eig=6,
+                         use_PETSc=False,
                          safe_flag=True):
         if self.sigma.stokes_min is None and n_dust > 1:
             print("Warning: setting n_dust=1 because monodisperse!")
@@ -144,6 +153,7 @@ class StratBox():
                                  n_eq=4 + 4*self.n_dust,
                                  sparse_flag=sparse_flag,
                                  sigma=sigma, n_eig=n_eig,
+                                 use_PETSc=use_PETSc,
                                  degeneracy=degen,
                                  kx=wave_number_x,
                                  equilibrium=self.eq,
@@ -155,6 +165,7 @@ class StratBox():
                                  n_eq=4 + 4*self.n_dust,
                                  sparse_flag=sparse_flag,
                                  sigma=sigma, n_eig=n_eig,
+                                 use_PETSc=use_PETSc,
                                  degeneracy=degen,
                                  factor=1,
                                  kx=wave_number_x,
@@ -349,125 +360,3 @@ class StratBox():
             raise RunTimeError('Not implemented')
 
         return u
-
-
-class ModeTracker():
-    def __init__(self, strat_box):
-        self.sb = strat_box
-
-    def safe_step(self, sigma, maxN=600):
-        self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
-                                 N=self.sb.N,
-                                 L=self.sb.L,
-                                 n_dust=self.sb.n_dust,
-                                 sparse_flag=True,
-                                 sigma=sigma,
-                                 n_eig=1)
-        if len(np.atleast_1d(self.sb.eig)) == 0:
-            higher_N = self.sb.N + 50
-            while (len(np.atleast_1d(self.sb.eig)) == 0 and higher_N <= maxN):
-                self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
-                                         N=higher_N,
-                                         L=self.sb.L,
-                                         n_dust=self.sb.n_dust,
-                                         sparse_flag=True,
-                                         sigma=sigma,
-                                         n_eig=1)
-                higher_N = self.sb.N + 50
-
-            if len(np.atleast_1d(self.sb.eig)) == 0:
-                print('Forcing closest eigenvalue at highest res')
-
-                self.sb.eig = self.sb.di.eval_hires
-        else:
-            if self.sb.N > 50:
-                self.sb.N = self.sb.N - 50
-
-        # Select closest to sigma
-        e = np.atleast_1d(self.sb.eig)
-        k = np.argmin(np.abs(e - sigma))
-        return self.sb.eig[k]
-
-    def track(self):
-        pass
-
-
-class WaveNumberTracker(ModeTracker):
-    def track(self, wave_numbers, starting_ev, maxN=600):
-        # Wavenumbers to evaluate modes at
-        kx = np.atleast_1d(wave_numbers)
-
-        # Starting eigenvalues, corresponding to wave_numbers[0]
-        ev = np.atleast_1d(starting_ev)
-
-        ret = np.zeros((len(ev), len(kx)), dtype=np.cdouble)
-        ret[:,0] = ev
-
-        for j in range(0, len(ev)):
-            for i in range(1, len(kx)):
-                self.sb.kx = kx[i]
-
-                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
-
-                #self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
-                #                         N=self.sb.N,
-                #                         L=self.sb.L,
-                #                         n_dust=self.sb.n_dust,
-                #                         sparse_flag=True,
-                #                         sigma=ret[j,i - 1],
-                #                         n_eig=1)
-                #if len(np.atleast_1d(self.sb.eig)) == 0:
-                #    higher_N = self.sb.N + 50
-                #    while (len(np.atleast_1d(self.sb.eig)) == 0 and
-                #           higher_N <= maxN):
-                #        self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
-                #                                 N=higher_N,
-                #                                 L=self.sb.L,
-                #                                 n_dust=self.sb.n_dust,
-                #                                 sparse_flag=True,
-                #                                 sigma=ret[j,i - 1],
-                #                                 n_eig=1)
-                #        higher_N = self.sb.N + 50
-                #
-                #    if len(np.atleast_1d(self.sb.eig)) == 0:
-                #        print('Forcing closest eigenvalue at highest res')
-                #
-                #        self.sb.eig = self.sb.di.eval_hires
-                #else:
-                #    if self.sb.N > 50:
-                #        self.sb.N = self.sb.N - 50
-                #
-                ## Select closest to sigma
-                #e = np.atleast_1d(self.sb.eig)
-                #k = np.argmin(np.abs(e - ret[j,i - 1]))
-                #ret[j, i] = self.sb.eig[k]
-
-                print(i, kx[i], self.sb.eig[k], self.sb.eig)
-
-        return ret
-
-class StokesRangeTracker(ModeTracker):
-    def track(self, stokes_min, stokes_max, starting_ev, maxN=600):
-        #print('Starting tracker...')
-
-        st_min = np.atleast_1d(stokes_min)
-        st_max = np.atleast_1d(stokes_max)
-
-        # Starting eigenvalues, corresponding to wave_numbers[0]
-        ev = np.atleast_1d(starting_ev)
-
-        ret = np.zeros((len(ev), len(st_max)), dtype=np.cdouble)
-        ret[:,0] = ev
-
-        for j in range(0, len(ev)):
-            for i in range(1, len(st_max)):
-                #print('Setting Stokes Range...')
-                self.sb.set_stokes_range([st_min[i], st_max[i]])
-
-                #print('Performing safe step...')
-                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
-
-
-                print(i, self.sb.N, st_min[i], st_max[i], ret[j,i])
-                #print(self.sb.eig, self.sb.vec)
-        return ret
