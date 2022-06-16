@@ -1,5 +1,7 @@
 import numpy as np
 
+from scipy.interpolate import interp1d
+
 class ModeTracker():
     def __init__(self, strat_box, filename=None):
         self.sb = strat_box
@@ -15,6 +17,7 @@ class ModeTracker():
                                  sigma=sigma,
                                  n_eig=1)
         if len(np.atleast_1d(self.sb.eig)) == 0:
+            # Try higher resolution
             higher_N = self.sb.N + 50
             while (len(np.atleast_1d(self.sb.eig)) == 0 and higher_N <= maxN):
                 self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
@@ -28,9 +31,32 @@ class ModeTracker():
                 higher_N = self.sb.N + 50
 
             if len(np.atleast_1d(self.sb.eig)) == 0:
-                print('Forcing closest eigenvalue at highest res')
+                # Reached maximum N and still no valid ev
+                # Try lowering L
+                self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
+                                         N=higher_N,
+                                         L=self.sb.L/1.5,
+                                         n_dust=self.sb.n_dust,
+                                         sparse_flag=True,
+                                         use_PETSc=True,
+                                         sigma=sigma,
+                                         n_eig=1)
 
-                self.sb.eig = self.sb.di.eval_hires
+                if len(np.atleast_1d(self.sb.eig)) == 0:
+                    # Lowering L did not work; try increasing L
+                    self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
+                                             N=higher_N,
+                                             L=self.sb.L*3,
+                                             n_dust=self.sb.n_dust,
+                                             sparse_flag=True,
+                                             use_PETSc=True,
+                                             sigma=sigma,
+                                             n_eig=1)
+
+
+                if len(np.atleast_1d(self.sb.eig)) == 0:
+                    print('Forcing closest eigenvalue at highest res')
+                    self.sb.eig = self.sb.di.eval_hires
         else:
             if self.sb.N > 50:
                 self.sb.N = self.sb.N - 50
@@ -56,18 +82,18 @@ class WaveNumberTracker(ModeTracker):
         ret = np.zeros((len(ev), len(kx)), dtype=np.cdouble)
         ret[:,0] = ev
 
-        # Make adaptive k step?
-        # Approximation for dlambda/dk
-        # Expect lambda = dlambda/dk *dk
-        # If too different, reduce dk
         for j in range(0, len(ev)):
             for i in range(1, len(kx)):
                 self.sb.kx = kx[i]
 
+                # Guess where next ev could be
                 target = ret[j, i-1]
                 if i > 1:
-                    target = ret[j, i-1] + \
-                      (ret[j, i-1] - ret[j, i-2])/(kx[i-1] - kx[i-2])*(kx[i] - kx[i-1])
+                    target = \
+                      interp1d(kx[0:i], ret[j, 0:i], \
+                               fill_value='extrapolate')(kx[i])
+                    #target = ret[j, i-1] + \
+                    #  (ret[j, i-1] - ret[j, i-2])/(kx[i-1] - kx[i-2])*(kx[i] - kx[i-1])
 
                 ret[j, i] = self.safe_step(target, maxN=maxN)
 
@@ -76,7 +102,7 @@ class WaveNumberTracker(ModeTracker):
                 if self.filename is not None:
                     self.sb.save(self.filename)
 
-                print(i, self.sb.N, kx[i], ret[j, i], flush=True)
+                print(i, self.sb.N, kx[i], target, ret[j, i], flush=True)
 
         return ret
 
