@@ -66,7 +66,8 @@ class WaveNumberTracker(ModeTracker):
 
                 target = ret[j, i-1]
                 if i > 1:
-                    target = res[j, i-1] + (res[j, i-1] - res[j, i-2])/(kx[i-1] - kx[i-2])*(kx[i] - kx[i-1])
+                    target = ret[j, i-1] + \
+                      (ret[j, i-1] - ret[j, i-2])/(kx[i-1] - kx[i-2])*(kx[i] - kx[i-1])
 
                 ret[j, i] = self.safe_step(target, maxN=maxN)
 
