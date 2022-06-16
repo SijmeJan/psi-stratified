@@ -64,7 +64,11 @@ class WaveNumberTracker(ModeTracker):
             for i in range(1, len(kx)):
                 self.sb.kx = kx[i]
 
-                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
+                target = ret[j, i-1]
+                if i > 1:
+                    target = res[j, i-1] + (res[j, i-1] - res[j, i-2])/(kx[i-1] - kx[i-2])*(kx[i] - kx[i-1])
+
+                ret[j, i] = self.safe_step(target, maxN=maxN)
 
                 # Save to file.
                 # Not sure how to do it with other parameters than wavenumber?
