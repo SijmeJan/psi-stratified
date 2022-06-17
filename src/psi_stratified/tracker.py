@@ -20,7 +20,6 @@ class ModeTracker():
         original_L = self.sb.L
 
         if len(np.atleast_1d(self.sb.eig)) == 0:
-            print('Lowering L to ', self.sb.L/1.5, flush=True)
             self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
                                      N=self.sb.N,
                                      L=self.sb.L/1.5,
@@ -32,7 +31,6 @@ class ModeTracker():
 
             if len(np.atleast_1d(self.sb.eig)) == 0:
                 # Lowering L did not work; try increasing L
-                print('Increasing L to ', self.sb.L*1.5*1.5, flush=True)
                 self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
                                          N=self.sb.N,
                                          L=self.sb.L*1.5*1.5,
