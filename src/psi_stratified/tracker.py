@@ -16,49 +16,47 @@ class ModeTracker():
                                  use_PETSc=True,
                                  sigma=sigma,
                                  n_eig=1)
+
+        original_L = self.sb.L
+
         if len(np.atleast_1d(self.sb.eig)) == 0:
-            # Try higher resolution
-            higher_N = self.sb.N + 50
-            while (len(np.atleast_1d(self.sb.eig)) == 0 and higher_N <= maxN):
-                self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
-                                         N=higher_N,
-                                         L=self.sb.L,
-                                         n_dust=self.sb.n_dust,
-                                         sparse_flag=True,
-                                         use_PETSc=True,
-                                         sigma=sigma,
-                                         n_eig=1)
-                higher_N = self.sb.N + 50
+            print('Lowering L to ', self.sb.L/1.5, flush=True)
+            self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
+                                     N=self.sb.N,
+                                     L=self.sb.L/1.5,
+                                     n_dust=self.sb.n_dust,
+                                     sparse_flag=True,
+                                     use_PETSc=True,
+                                     sigma=sigma,
+                                     n_eig=1)
 
             if len(np.atleast_1d(self.sb.eig)) == 0:
-                # Reached maximum N and still no valid ev
-                # Try lowering L
-                print('Lowering L to ', self.sb.L/1.5, flush=True)
+                # Lowering L did not work; try increasing L
+                print('Increasing L to ', self.sb.L*1.5*1.5, flush=True)
                 self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
-                                         N=higher_N,
-                                         L=self.sb.L/1.5,
+                                         N=self.sb.N,
+                                         L=self.sb.L*1.5*1.5,
                                          n_dust=self.sb.n_dust,
                                          sparse_flag=True,
                                          use_PETSc=True,
                                          sigma=sigma,
                                          n_eig=1)
 
-                if len(np.atleast_1d(self.sb.eig)) == 0:
-                    # Lowering L did not work; try increasing L
-                    print('Increasing L to ', self.sb.L*1.5*1.5, flush=True)
+            if len(np.atleast_1d(self.sb.eig)) == 0:
+                # Try higher resolution
+                higher_N = self.sb.N + 50
+                while (len(np.atleast_1d(self.sb.eig))==0 and higher_N <= maxN):
                     self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
                                              N=higher_N,
-                                             L=self.sb.L*1.5*1.5,
+                                             L=original_L,
                                              n_dust=self.sb.n_dust,
                                              sparse_flag=True,
                                              use_PETSc=True,
                                              sigma=sigma,
                                              n_eig=1)
-
+                    higher_N = self.sb.N + 50
 
                 if len(np.atleast_1d(self.sb.eig)) == 0:
-                    # Restore original L
-                    self.sb.L = self.sb.L/1.5
                     print('Forcing closest eigenvalue at highest res')
                     self.sb.eig = self.sb.di.eval_hires
         else:
@@ -106,7 +104,7 @@ class WaveNumberTracker(ModeTracker):
                 if self.filename is not None:
                     self.sb.save(self.filename)
 
-                print(i, self.sb.N, kx[i], target, ret[j, i], flush=True)
+                print(i, self.sb.N, self.sb.L, kx[i], ret[j, i], flush=True)
 
         return ret
 
