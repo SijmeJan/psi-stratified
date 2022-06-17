@@ -33,6 +33,7 @@ class ModeTracker():
             if len(np.atleast_1d(self.sb.eig)) == 0:
                 # Reached maximum N and still no valid ev
                 # Try lowering L
+                print('Lowering L to ', self.sb.L/1.5, flush=True)
                 self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
                                          N=higher_N,
                                          L=self.sb.L/1.5,
@@ -44,9 +45,10 @@ class ModeTracker():
 
                 if len(np.atleast_1d(self.sb.eig)) == 0:
                     # Lowering L did not work; try increasing L
+                    print('Increasing L to ', self.sb.L*1.5*1.5, flush=True)
                     self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
                                              N=higher_N,
-                                             L=self.sb.L*3,
+                                             L=self.sb.L*1.5*1.5,
                                              n_dust=self.sb.n_dust,
                                              sparse_flag=True,
                                              use_PETSc=True,
@@ -55,6 +57,8 @@ class ModeTracker():
 
 
                 if len(np.atleast_1d(self.sb.eig)) == 0:
+                    # Restore original L
+                    self.sb.L = self.sb.L/1.5
                     print('Forcing closest eigenvalue at highest res')
                     self.sb.eig = self.sb.di.eval_hires
         else:
