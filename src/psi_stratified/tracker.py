@@ -1,4 +1,5 @@
 import numpy as np
+import h5py as h5
 
 from scipy.interpolate import interp1d
 
@@ -70,9 +71,25 @@ class ModeTracker():
     def track(self):
         pass
 
+    def save(self, x_values, y_values, group_name):
+        if self.filename is not None:
+            hf = h5.File(self.filename, 'a')
+
+            if group_name not in hf:
+                g = hf.create_group(group_name)
+            else:
+                g = hf[group_name]
+                print('Warning: replacing eigenvalues and eigenvectors!')
+                del g['x_values']
+                del g['y_values']
+
+            g.create_dataset('x_values', data=x_values)
+            g.create_dataset('y_values', data=y_values)
+
+            hf.close()
 
 class WaveNumberTracker(ModeTracker):
-    def track(self, wave_numbers, starting_ev, maxN=600):
+    def track(self, wave_numbers, starting_ev, maxN=600, label='main'):
         # Wavenumbers to evaluate modes at
         kx = np.atleast_1d(wave_numbers)
 
@@ -99,10 +116,12 @@ class WaveNumberTracker(ModeTracker):
 
                 # Save to file.
                 # Not sure how to do it with other parameters than wavenumber?
-                if self.filename is not None:
-                    self.sb.save(self.filename)
+                #if self.filename is not None:
+                #    self.sb.save(self.filename)
 
                 print(i, self.sb.N, self.sb.L, kx[i], ret[j, i], flush=True)
+
+        self.save(kx, ret, label)
 
         return ret
 
