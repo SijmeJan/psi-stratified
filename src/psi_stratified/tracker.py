@@ -42,12 +42,15 @@ class ModeTracker():
                                          n_eig=1)
 
             if len(np.atleast_1d(self.sb.eig)) == 0:
+                # Varying L did not help, restore original
+                self.sb.L = original_L
+
                 # Try higher resolution
                 higher_N = self.sb.N + 50
                 while (len(np.atleast_1d(self.sb.eig))==0 and higher_N <= maxN):
                     self.sb.find_eigenvalues(wave_number_x=self.sb.kx,
                                              N=higher_N,
-                                             L=original_L,
+                                             L=self.sb.L,
                                              n_dust=self.sb.n_dust,
                                              sparse_flag=True,
                                              use_PETSc=True,
