@@ -1,4 +1,5 @@
 import numpy as np
+import h5py as h5
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -231,3 +232,26 @@ def plot_pdf(sb):
         plt.close(fig)
 
     pp.close()
+
+def plot_wavenumber_range(filename):
+    fig, ax = plt.subplots(1, 1)
+    ax.set_xscale('log')
+    ax.set_xlabel(r'$k_xH$')
+    ax.set_ylabel(r'$\Im(\omega/\Omega)$')
+
+    hf = h5.File(filename, 'r')
+
+    for group_name in hf:
+        g = hf[group_name]
+
+        # Get data
+        x = g.get('x_values')[()]
+        y = g.get('y_values')[()]
+
+        ax.plot(x, np.imag(y[0,:]), label=group_name)
+
+    ax.legend()
+
+    hf.close()
+
+    return fig
