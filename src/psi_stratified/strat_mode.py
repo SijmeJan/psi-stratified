@@ -29,6 +29,9 @@ class StratBox():
         self.di = DirectSolver(interval=[-np.inf, np.inf],
                                symmetry=None, basis='Hermite')
 
+        self.eig = []
+        self.vec = []
+
     @classmethod
     def from_file(cls, filename):
         hf = h5.File(filename, 'a')
@@ -135,6 +138,10 @@ class StratBox():
 
         self.solve_background(n_dust)
 
+        # Find all eigenvalues if n_eig < 0
+        if n_eig < 0:
+            n_eig = 4*(n_dust + 1)*N
+
         #print('Finding eigenvalues...')
 
         self.kx = wave_number_x
@@ -144,8 +151,8 @@ class StratBox():
         ngl = self.param['neglect_gas_viscosity']
 
         degen = 1
-        if sparse_flag == True:
-            degen = n_eig
+        #if sparse_flag == True:
+        #    degen = n_eig
         if safe_flag == True:
             self.eig, self.vec = \
               self.di.safe_solve(N,
