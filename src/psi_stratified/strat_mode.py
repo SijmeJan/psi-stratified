@@ -130,8 +130,7 @@ class StratBox():
 
     def find_eigenvalues(self, wave_number_x, N, L=1, n_dust=1,
                          sparse_flag=False, sigma=None, n_eig=6,
-                         use_PETSc=False,
-                         safe_flag=True):
+                         use_PETSc=False):
         if self.sigma.stokes_min is None and n_dust > 1:
             print("Warning: setting n_dust=1 because monodisperse!")
             n_dust = 1
@@ -139,8 +138,8 @@ class StratBox():
         self.solve_background(n_dust)
 
         # Find all eigenvalues if n_eig < 0
-        if n_eig < 0:
-            n_eig = 4*(n_dust + 1)*N
+        #if n_eig < 0:
+        #    n_eig = 4*(n_dust + 1)*N
 
         #print('Finding eigenvalues...')
 
@@ -153,32 +152,17 @@ class StratBox():
         degen = 1
         #if sparse_flag == True:
         #    degen = n_eig
-        if safe_flag == True:
-            self.eig, self.vec = \
-              self.di.safe_solve(N,
-                                 L=L,
-                                 n_eq=4 + 4*self.n_dust,
-                                 sparse_flag=sparse_flag,
-                                 sigma=sigma, n_eig=n_eig,
-                                 use_PETSc=use_PETSc,
-                                 degeneracy=degen,
-                                 kx=wave_number_x,
-                                 equilibrium=self.eq,
-                                 neglect_gas_viscosity=ngl)
-        else:
-            self.eig, self.vec = \
-              self.di.safe_solve(N,
-                                 L=L,
-                                 n_eq=4 + 4*self.n_dust,
-                                 sparse_flag=sparse_flag,
-                                 sigma=sigma, n_eig=n_eig,
-                                 use_PETSc=use_PETSc,
-                                 degeneracy=degen,
-                                 factor=1,
-                                 kx=wave_number_x,
-                                 equilibrium=self.eq,
-                                 neglect_gas_viscosity=ngl)
-
+        self.eig, self.vec = \
+          self.di.safe_solve(N,
+                             L=L,
+                             n_eq=4 + 4*self.n_dust,
+                             sparse_flag=sparse_flag,
+                             sigma=sigma, n_eig=n_eig,
+                             use_PETSc=use_PETSc,
+                             degeneracy=degen,
+                             kx=wave_number_x,
+                             equilibrium=self.eq,
+                             neglect_gas_viscosity=ngl)
 
     def select_growing_eigenvalues(self):
         eig_select = []
