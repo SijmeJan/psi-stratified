@@ -130,18 +130,12 @@ class StratBox():
 
     def find_eigenvalues(self, wave_number_x, N, L=1, n_dust=1,
                          sparse_flag=False, sigma=None, n_eig=6,
-                         use_PETSc=False):
+                         n_safe_levels=1, use_PETSc=False):
         if self.sigma.stokes_min is None and n_dust > 1:
             print("Warning: setting n_dust=1 because monodisperse!")
             n_dust = 1
 
         self.solve_background(n_dust)
-
-        # Find all eigenvalues if n_eig < 0
-        #if n_eig < 0:
-        #    n_eig = 4*(n_dust + 1)*N
-
-        #print('Finding eigenvalues...')
 
         self.kx = wave_number_x
         self.L = L
@@ -160,6 +154,7 @@ class StratBox():
                              sigma=sigma, n_eig=n_eig,
                              use_PETSc=use_PETSc,
                              degeneracy=degen,
+                             n_safe_levels=n_safe_levels,
                              kx=wave_number_x,
                              equilibrium=self.eq,
                              neglect_gas_viscosity=ngl)
