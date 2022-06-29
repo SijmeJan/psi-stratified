@@ -203,7 +203,7 @@ def plot_stokes_dist(eq):
     return fig
 
 def plot_pdf(sb):
-    zmax = 0.05*np.sqrt(sb.param['viscous_alpha']/1.0e-6)*0.01/sb.eq.tau[-1]
+    zmax = 0.05*np.sqrt(sb.param['viscous_alpha']/1.0e-6)*np.sqrt(0.01/sb.eq.tau[-1])
     z_interval = [-zmax, zmax]
     pp = PdfPages('temp.pdf')
 
