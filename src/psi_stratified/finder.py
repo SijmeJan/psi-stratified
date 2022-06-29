@@ -47,10 +47,10 @@ class ModeFinder():
         # Go through range of L to find best value
 
     def find_growing_at_real_part(self, real_part,
-                                  wave_number_x, N, n_eig=10):
+                                  wave_number_x, N,
+                                  n_eig=10, max_growth=1.0):
         max_n_eig = 4*(self.sb.n_dust + 1)*N
 
-        max_growth = 2.0
         imag_part = 0.0
 
         e_val = []
@@ -86,18 +86,19 @@ class ModeFinder():
 
             if len(self.sb.eig) == 0:
                 print('No eigenvalues found!')
-                return [], []
+                imag_part = max_growth
+            else:
+                e_val.extend(self.sb.eig.tolist())
+                e_vec.extend(self.sb.vec.tolist())
 
-            print(imag_part, n_eig)
+                rad = np.max(np.abs(self.sb.eig - sigma))
+                print(imag_part, n_eig, rad)
 
-            e_val.extend(self.sb.eig.tolist())
-            e_vec.extend(self.sb.vec.tolist())
-
-            rad = np.max(np.abs(self.sb.eig - sigma))
-            imag_part = imag_part + rad
+                imag_part = imag_part + rad
 
         # Prune to unique eigenvalues
-        e_val, sel = unique_within_tol_complex(np.asarray(e_val))
-        e_vec = np.asarray(e_vec)[sel,:]
+        if len(e_val) > 0:
+            e_val, sel = unique_within_tol_complex(np.asarray(e_val))
+            e_vec = np.asarray(e_vec)[sel,:]
 
         return e_val, e_vec
