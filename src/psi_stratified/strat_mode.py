@@ -146,7 +146,7 @@ class StratBox():
         degen = 1
         #if sparse_flag == True:
         #    degen = n_eig
-        self.eig, self.vec = \
+        self.eig, self.vec, self.rad = \
           self.di.safe_solve(N,
                              L=L,
                              n_eq=4 + 4*self.n_dust,
