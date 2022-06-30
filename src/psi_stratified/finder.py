@@ -47,17 +47,25 @@ class ModeFinder():
         # Go through range of L to find best value
 
     def find_growing_at_real_part(self, real_part,
+                                  imag_range,
                                   wave_number_x, N,
-                                  n_eig=10, max_growth=1.0):
-        max_n_eig = 4*(self.sb.n_dust + 1)*N
-
-        imag_part = 0.0
+                                  n_eig=10,
+                                  flip_real_imag_flag=False):
+        '''Search around given real part for growing modes.'''
+        imag_part = imag_range[0]
 
         e_val = []
         e_vec = []
 
-        while imag_part < max_growth:
+        centres = []
+        radii = []
+
+        while imag_part < imag_range[1]:
+            # Search around this target
             sigma = real_part + 1j*imag_part
+            if flip_real_imag_flag == True:
+                sigma = imag_part + 1j*real_part
+
             self.sb.find_eigenvalues(wave_number_x=wave_number_x,
                                      N=N,
                                      L=self.sb.L,
@@ -68,37 +76,20 @@ class ModeFinder():
                                      sigma=sigma,
                                      n_eig=n_eig)
 
-            while len(self.sb.eig) == 0 and n_eig < max_n_eig:
-                n_eig = n_eig*2
-                if n_eig > max_n_eig:
-                    n_eig=max_n_eig
+            centres.append(sigma)
+            radii.append(self.sb.rad)
 
-                self.sb.find_eigenvalues(wave_number_x=wave_number_x,
-                                         N=N,
-                                         L=self.sb.L,
-                                         n_dust=self.sb.n_dust,
-                                         sparse_flag=True,
-                                         n_safe_levels=1,
-                                         use_PETSc=True,
-                                         sigma=sigma,
-                                         n_eig=n_eig)
+            print(imag_part, self.sb.rad, len(e_val))
+            # sb.rad: maximum distance between sigma and any eigenvalue found
+            imag_part = imag_part + self.sb.rad
 
-
-            if len(self.sb.eig) == 0:
-                print('No eigenvalues found!')
-                imag_part = max_growth
-            else:
+            if len(self.sb.eig) > 0:
                 e_val.extend(self.sb.eig.tolist())
                 e_vec.extend(self.sb.vec.tolist())
-
-                rad = np.max(np.abs(self.sb.eig - sigma))
-                print(imag_part, n_eig, rad)
-
-                imag_part = imag_part + rad
 
         # Prune to unique eigenvalues
         if len(e_val) > 0:
             e_val, sel = unique_within_tol_complex(np.asarray(e_val))
             e_vec = np.asarray(e_vec)[sel,:]
 
-        return e_val, e_vec
+        return e_val, e_vec, centres, radii
