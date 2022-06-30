@@ -63,6 +63,8 @@ class ModeFinder():
         while imag_part < imag_range[1]:
             # Search around this target
             sigma = real_part + 1j*imag_part
+
+            # Flip if tracking real line
             if flip_real_imag_flag == True:
                 sigma = imag_part + 1j*real_part
 
@@ -79,7 +81,7 @@ class ModeFinder():
             centres.append(sigma)
             radii.append(self.sb.rad)
 
-            print(imag_part, self.sb.rad, len(e_val))
+            print(imag_part, self.sb.rad, len(e_val), flush=True)
             # sb.rad: maximum distance between sigma and any eigenvalue found
             imag_part = imag_part + self.sb.rad
 
