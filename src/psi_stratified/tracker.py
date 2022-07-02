@@ -112,8 +112,6 @@ class WaveNumberTracker(ModeTracker):
                     target = \
                       interp1d(kx[0:i], ret[j, 0:i], \
                                fill_value='extrapolate')(kx[i])
-                    #target = ret[j, i-1] + \
-                    #  (ret[j, i-1] - ret[j, i-2])/(kx[i-1] - kx[i-2])*(kx[i] - kx[i-1])
 
                 ret[j, i] = self.safe_step(target, maxN=maxN)
 
