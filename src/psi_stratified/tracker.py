@@ -109,9 +109,10 @@ class WaveNumberTracker(ModeTracker):
                 # Guess where next ev could be
                 target = ret[j, i-1]
                 if i > 1:
-                    target = \
-                      interp1d(kx[0:i], ret[j, 0:i], \
-                               fill_value='extrapolate')(kx[i])
+                    if kx[i-1] != kx[i]:
+                        target = \
+                          interp1d(kx[0:i], ret[j, 0:i], \
+                                   fill_value='extrapolate')(kx[i])
 
                 ret[j, i] = self.safe_step(target, maxN=maxN)
 
