@@ -7,7 +7,7 @@ class TrackerFile():
     def __init__(self, filename):
         self.filename = filename
 
-    def save(self, x_values, y_values, group_name):
+    def save(self, x_values, y_values, N, L, group_name):
         hf = h5.File(self.filename, 'a')
 
         if group_name not in hf:
@@ -17,13 +17,17 @@ class TrackerFile():
             print('Warning: replacing eigenvalues and eigenvectors!')
             del g['x_values']
             del g['y_values']
+            del g['N']
+            del g['L']
 
         g.create_dataset('x_values', data=x_values)
         g.create_dataset('y_values', data=y_values)
+        g.create_dataset('N', data=N)
+        g.create_dataset('L', data=L)
 
         hf.close()
 
-    def save_single(self, x_value, y_value, group_name):
+    def save_single(self, x_value, y_value, N, L, group_name):
         '''Insert single (x,y) pair in existing sequence'''
         hf = h5.File(self.filename, 'a')
 
@@ -33,12 +37,16 @@ class TrackerFile():
 
             x_values = np.atleast_1d(np.asarray(x_value))
             y_values = np.atleast_1d(np.asarray(y_value))
+            N_values = np.atleast_1d(np.asarray(N))
+            L_values = np.atleast_1d(np.asarray(L))
         else:
             #print('tf: Adding to existing group')
             g = hf[group_name]
 
             x_values = g.get('x_values')[()]
             y_values = g.get('y_values')[()]
+            N_values = g.get('N')[()]
+            L_values = g.get('L')[()]
 
             if x_value not in np.atleast_1d(x_values):
                 #print('tf: inserting')
@@ -46,12 +54,18 @@ class TrackerFile():
 
                 x_values = np.insert(x_values, idx, x_value)
                 y_values = np.insert(y_values, idx, y_value)
+                N_values = np.insert(N_values, idx, N)
+                L_values = np.insert(L_values, idx, L)
 
             del g['x_values']
             del g['y_values']
+            del g['N']
+            del g['L']
 
         g.create_dataset('x_values', data=x_values)
         g.create_dataset('y_values', data=y_values)
+        g.create_dataset('N', data=N_values)
+        g.create_dataset('L', data=L_values)
 
         hf.close()
 
@@ -62,9 +76,13 @@ class TrackerFile():
         if group_name in hf:
             x_in_file = hf[group_name].get('x_values')[()]
             if x_value in np.atleast_1d(x_in_file):
-                y_in_file = hf[group_name].get('y_values')[()]
+                idx = np.asarray(x_in_file == x_value).nonzero()[0]
 
-                ret = y_in_file[np.asarray(x_in_file == x_value).nonzero()[0]]
+                y_in_file = hf[group_name].get('y_values')[()]
+                N_in_file = hf[group_name].get('N')[()]
+                L_in_file = hf[group_name].get('L')[()]
+
+                ret = y_in_file[idx], N_in_file[idx], L_in_file[idx]
 
         hf.close()
 
@@ -77,6 +95,8 @@ class TrackerFile():
             g = hf[group_name]
             del g['x_values']
             del g['y_values']
+            del g['N']
+            del g['L']
         else:
             print(group_name, ' not found in file')
 
@@ -87,14 +107,15 @@ class TrackerFile():
 
         x_merged = []
         y_merged = []
+        N_merged = []
+        L_merged = []
         for group in group_list:
             x_merged.extend(hf[group].get('x_values')[()].tolist())
             y_merged.extend(hf[group].get('y_values')[()].tolist())
+            N_merged.extend(hf[group].get('N')[()].tolist())
+            L_merged.extend(hf[group].get('L')[()].tolist())
 
         hf.close()
-
-        #for group in group_list:
-        #    self.delete_group(group)
 
         self.save(x_merged, y_merged, group_merged)
 
@@ -170,7 +191,13 @@ class ModeTracker():
                 if len(np.atleast_1d(self.sb.eig)) == 0:
                     print('Forcing closest eigenvalue at highest res')
                     self.sb.eig = self.sb.di.eval_hires
+
+            used_N = self.sb.N
+            used_L = self.sb.L
         else:
+            used_N = self.sb.N
+            used_L = self.sb.L
+
             if self.sb.N > 50:
                 self.sb.N = self.sb.N - 50
 
@@ -178,7 +205,7 @@ class ModeTracker():
         e = np.atleast_1d(self.sb.eig)
         k = np.argmin(np.abs(e - sigma))
 
-        return self.sb.eig[k]
+        return self.sb.eig[k], used_N, used_L
 
     def track(self):
         pass
@@ -213,7 +240,7 @@ class WaveNumberTracker(ModeTracker):
 
 
         for j in range(0, len(ev)):
-            self.tf.save_single(kx[0], ret[j,0], label)
+            self.tf.save_single(kx[0], ret[j,0], self.sb.N, self.sb.L, label)
             for i in range(1, len(kx)):
                 self.sb.kx = kx[i]
 
@@ -228,12 +255,12 @@ class WaveNumberTracker(ModeTracker):
                               interp1d(kx[0:i], ret[j, 0:i], \
                                        fill_value='extrapolate')(kx[i])
 
-                    ret[j, i] = self.safe_step(target, maxN=maxN)
+                    ret[j, i], N, L = self.safe_step(target, maxN=maxN)
 
 
-                    self.tf.save_single(kx[i], ret[j,i], label)
+                    self.tf.save_single(kx[i], ret[j,i], N, L, label)
                 else:
-                    ret[j,i] = y
+                    ret[j, i], self.sb.N, self.sb.L = y
 
                 print(i, self.sb.N, self.sb.L, kx[i], ret[j, i], flush=True)
 
