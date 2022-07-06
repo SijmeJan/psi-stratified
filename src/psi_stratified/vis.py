@@ -5,6 +5,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from .energy import energy_decomposition
 from .tools import norm_factor_dust_density
+from .tracker import TrackerFile
 
 def plot_equilibrium(eq, interval=[0,1]):
     fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, sharex=True)
@@ -210,17 +211,19 @@ def plot_pdf(sb):
     fig = plot_equilibrium(sb.eq, interval=z_interval)
     pp.savefig(fig)
 
-    #fig = plot_stokes_dist(sb.eq)
-    #pp.savefig(fig)
+    if sb.n_dust > 1:
+        fig = plot_stokes_dist(sb.eq)
+        pp.savefig(fig)
 
     for n, v in enumerate(sb.vec):
         fig = plot_eigenmode(sb, sb.eig[n], v, interval=z_interval)
         pp.savefig(fig)
         plt.close(fig)
 
-        #fig = plot_contour_dust_density(sb, sb.eig[n],v,interval=z_interval)
-        #pp.savefig(fig)
-        #plt.close(fig)
+        if sb.n_dust > 1:
+            fig = plot_contour_dust_density(sb, sb.eig[n],v,interval=z_interval)
+            pp.savefig(fig)
+            plt.close(fig)
 
         fig = plot_energy_decomposition(sb, sb.eig[n], v, sb.kx,
                                         interval=z_interval)
@@ -236,22 +239,25 @@ def plot_pdf(sb):
 def plot_wavenumber_range(filename):
     fig, ax = plt.subplots(1, 1)
     ax.set_xscale('log')
+    ax.set_yscale('log')
     ax.set_xlabel(r'$k_xH$')
     ax.set_ylabel(r'$\Im(\omega/\Omega)$')
 
-    hf = h5.File(filename, 'r')
+    tf = TrackerFile(filename)
 
-    for group_name in hf:
-        g = hf[group_name]
+    #tf.delete_group('SI')
+    #tf_add = TrackerFile('/Users/sjp/python/linB_tracks.h5')
+    #tf.add_from_file(tf_add)
 
-        # Get data
-        x = g.get('x_values')[()]
-        y = g.get('y_values')[()]
+    for group_name in tf.list_groups():
+        x, y, N, L = tf.read_group(group_name)
 
-        ax.plot(x, np.imag(y[0,:]), label=group_name)
+        if y.ndim == 1:
+            f = np.imag(y)
+        else:
+            f = np.imag(y[0,:])
+        ax.plot(x, f, label=group_name)
 
     ax.legend()
-
-    hf.close()
 
     return fig

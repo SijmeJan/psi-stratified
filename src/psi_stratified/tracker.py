@@ -20,6 +20,7 @@ class TrackerFile():
             del g['N']
             del g['L']
 
+
         g.create_dataset('x_values', data=x_values)
         g.create_dataset('y_values', data=y_values)
         g.create_dataset('N', data=N)
@@ -97,6 +98,7 @@ class TrackerFile():
             del g['y_values']
             del g['N']
             del g['L']
+            del hf[group_name]
         else:
             print(group_name, ' not found in file')
 
@@ -122,13 +124,56 @@ class TrackerFile():
     def list_groups(self):
         hf = h5.File(self.filename, 'r')
 
+        groups = []
         for g in hf:
-            print(g)
+            groups.append(g)
+
+
+        hf.close()
+
+        return groups
+
+    def rename_group(self, group_old, group_new):
+        hf = h5.File(self.filename, 'a')
+
+        if group_old in hf:
+            x, y, N, L = self.read_group(group_old)
+        else:
+            print('Could not rename group ', group_old)
+            hf.close()
+            return
+
+        self.save(x, y, N, L, group_new)
+        self.delete_group(group_old)
+
+    def read_group(self, group_name):
+        hf = h5.File(self.filename, 'r')
+
+        if group_name in hf:
+            g = hf[group_name]
+
+            # Get data
+            x = g.get('x_values')[()]
+            y = g.get('y_values')[()]
+            N = g.get('N')[()]
+            L = g.get('L')[()]
+
+            hf.close()
+            return x, y, N, L
+        else:
+            print('Could not read group ', group_name)
+            hf.close()
+            return None
+
+    def add_from_file(self, tf_add):
+        for group_add in tf_add.list_groups():
+            x, y, N, L = tf_add.read_group(group_add)
+            for i in range(0,len(x)):
+                self.save_single(x[i], y[i], N[i], L[i], group_add)
 
 class ModeTracker():
     def __init__(self, strat_box, filename=None):
         self.sb = strat_box
-        #self.filename = filename
 
         self.tf = None
         if filename is not None:
@@ -207,128 +252,78 @@ class ModeTracker():
 
         return self.sb.eig[k], used_N, used_L
 
-    def track(self):
+    def adjust_sbox(self, x_value):
         pass
 
-    def save(self, x_values, y_values, group_name):
-        if self.filename is not None:
-            hf = h5.File(self.filename, 'a')
+    def get_save_xvalue(self, x_value):
+        return x_value
 
-            if group_name not in hf:
-                g = hf.create_group(group_name)
-            else:
-                g = hf[group_name]
-                print('Warning: replacing eigenvalues and eigenvectors!')
-                del g['x_values']
-                del g['y_values']
-
-            g.create_dataset('x_values', data=x_values)
-            g.create_dataset('y_values', data=y_values)
-
-            hf.close()
-
-class WaveNumberTracker(ModeTracker):
-    def track(self, wave_numbers, starting_ev, maxN=600, label='main'):
+    def track(self, x_values, starting_ev, maxN=600, label='main'):
         # Wavenumbers to evaluate modes at
-        kx = np.atleast_1d(wave_numbers)
+        xv = np.atleast_1d(x_values)
 
         # Starting eigenvalues, corresponding to wave_numbers[0]
         ev = np.atleast_1d(starting_ev)
 
-        ret = np.zeros((len(ev), len(kx)), dtype=np.cdouble)
+        ret = np.zeros((len(ev), len(xv)), dtype=np.cdouble)
         ret[:,0] = ev
 
-
         for j in range(0, len(ev)):
-            self.tf.save_single(kx[0], ret[j,0], self.sb.N, self.sb.L, label)
-            for i in range(1, len(kx)):
-                self.sb.kx = kx[i]
+            if self.tf is not None:
+                save_xv = self.get_save_xvalue(xv[0])
+                self.tf.save_single(save_xv, ret[j,0], self.sb.N,
+                                    self.sb.L, label)
+            for i in range(1, len(xv)):
+                self.adjust_sbox(xv[i])
 
-                y = self.tf.get_single(kx[i], label)
+                y = None
+                if self.tf is not None:
+                    y = self.tf.get_single(self.get_save_xvalue(xv[i]), label)
 
                 if y == None:
                     # Guess where next ev could be
                     target = ret[j, i-1]
                     if i > 1:
-                        if kx[i-1] != kx[i]:
+                        if xv[i-1] != xv[i]:
                             target = \
-                              interp1d(kx[0:i], ret[j, 0:i], \
-                                       fill_value='extrapolate')(kx[i])
+                              interp1d(xv[0:i], ret[j, 0:i], \
+                                       fill_value='extrapolate')(xv[i])
 
                     ret[j, i], N, L = self.safe_step(target, maxN=maxN)
 
 
-                    self.tf.save_single(kx[i], ret[j,i], N, L, label)
+                    if self.tf is not None:
+                        save_xv = self.get_save_xvalue(xv[i])
+                        self.tf.save_single(save_xv, ret[j,i], N, L, label)
                 else:
                     ret[j, i], self.sb.N, self.sb.L = y
 
-                print(i, self.sb.N, self.sb.L, kx[i], ret[j, i], flush=True)
-
-        #self.save(kx, ret, label)
+                print(i, self.sb.N, self.sb.L, xv[i], ret[j, i], flush=True)
 
         return ret
+
+class WaveNumberTracker(ModeTracker):
+    def adjust_sbox(self, x_value):
+        self.sb.kx = x_value
 
 class StokesRangeTracker(ModeTracker):
-    def track(self, stokes_min, stokes_max, starting_ev, maxN=600):
-        #print('Starting tracker...')
+    def adjust_sbox(self, x_value):
+        # Vary st_min, keep st_max fixed
+        st_max = self.sb.param['stokes_range'][1]
+        self.sb.set_stokes_range([x_value, st_max])
 
-        st_min = np.atleast_1d(stokes_min)
-        st_max = np.atleast_1d(stokes_max)
-
-        # Starting eigenvalues, corresponding to wave_numbers[0]
-        ev = np.atleast_1d(starting_ev)
-
-        ret = np.zeros((len(ev), len(st_max)), dtype=np.cdouble)
-        ret[:,0] = ev
-
-        for j in range(0, len(ev)):
-            for i in range(1, len(st_max)):
-                #print('Setting Stokes Range...')
-                self.sb.set_stokes_range([st_min[i], st_max[i]])
-
-                #print('Performing safe step...')
-                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
-
-
-                print(i, self.sb.N, st_min[i], st_max[i], ret[j,i])
-                #print(self.sb.eig, self.sb.vec)
-        return ret
+    def get_save_xvalue(self, x_value):
+        x_value = 1000*np.log10(x_value)
+        return int(x_value)
 
 class DustFluidTracker(ModeTracker):
-    def track(self, n_dust, starting_ev, maxN=600):
-        n_dust = np.atleast_1d(n_dust)
-
-        # Starting eigenvalues, corresponding to wave_numbers[0]
-        ev = np.atleast_1d(starting_ev)
-
-        ret = np.zeros((len(ev), len(n_dust)), dtype=np.cdouble)
-        ret[:,0] = ev
-
-        for j in range(0, len(ev)):
-            for i in range(1, len(n_dust)):
-                self.sb.set_n_dust(n_dust[i])
-
-                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
-
-                print(i, self.sb.N, n_dust[i], ret[j,i])
-        return ret
+    def adjust_sbox(self, x_value):
+        self.sb.set_n_dust(x_value)
 
 class ViscosityTracker(ModeTracker):
-    def track(self, viscous_alpha, starting_ev, maxN=600):
-        viscous_alpha = np.atleast_1d(viscous_alpha)
+    def adjust_sbox(self, x_value):
+        self.sb.set_viscosity(x_value)
 
-        # Starting eigenvalues, corresponding to wave_numbers[0]
-        ev = np.atleast_1d(starting_ev)
-
-        ret = np.zeros((len(ev), len(viscous_alpha)), dtype=np.cdouble)
-        ret[:,0] = ev
-
-        for j in range(0, len(ev)):
-            for i in range(1, len(viscous_alpha)):
-                self.sb.set_viscosity(viscous_alpha[i])
-                self.sb.L = 0.006*np.sqrt(viscous_alpha[i]/1.0e-6)
-
-                ret[j, i] = self.safe_step(ret[j, i-1], maxN=maxN)
-
-                print(i, self.sb.N, viscous_alpha[i], ret[j,i])
-        return ret
+    def get_save_xvalue(self, x_value):
+        x_value = 1000*np.log10(x_value)
+        return int(x_value)
