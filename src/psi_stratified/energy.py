@@ -2,7 +2,7 @@ import numpy as np
 
 from .tools import norm_factor_dust_density
 
-def energy_decomposition(z, sb, eig, vec, kx):
+def energy_decomposition(z, sb, eig, vec, kx, u, du):
     # Equilibrium structure
     tau = sb.eq.tau
     rhog0 = sb.eq.gasdens(z)
@@ -17,8 +17,7 @@ def energy_decomposition(z, sb, eig, vec, kx):
     duz0 = sb.eq.duz(z)
 
     # Evaluate perturbations
-    u = sb.evaluate_velocity_form(z, vec)
-    du = sb.evaluate_velocity_form(z, vec, k=1)
+    #u, du = sb.evaluate_velocity_form(z, vec)
 
     # Normalize to maximum dust density perturbation
     norm_fac = norm_factor_dust_density(u, rhod0, tau, sb.eq.weights)
