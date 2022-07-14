@@ -382,6 +382,16 @@ class EquilibriumBVP(EquilibriumBase):
     Inherits analytic parts (gas and dust densities, vertical velocities) from EquilibriumBase, and adds the numerical solution for the horizontal velocities.
     """
 
+    def get_state(self, z):
+        rhog = self.gasdens(z)
+        sigma = self.sigma(z)
+        mu = self.epsilon(z)
+        dust_rho = self.dust_density(z)
+        vx, vy, ux, uy = self.evaluate(z)
+        uz = self.uz(z)
+
+        return rhog, sigma, mu, dust_rho, vx, vy, ux, uy, uz
+
     def solve(self, N, neglect_gas_viscosity=False):
         """Solve for the horizontal velocities"""
 
