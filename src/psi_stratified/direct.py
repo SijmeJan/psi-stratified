@@ -110,7 +110,7 @@ class HermiteSolverMulti(EigenValueSolver):
         return u
 
 class DirectSolver(EigenValueSolver):
-    def matrixM(self, sparse_flag=False, sigma=0,
+    def matrixM(self, sigma=0,
                 kx=1, equilibrium=None, neglect_gas_viscosity=False):
         n_dust = len(equilibrium.tau)
 
@@ -151,7 +151,7 @@ class DirectSolver(EigenValueSolver):
         data = []
 
         invA = np.eye(N)
-        if sparse_flag == True:
+        if self.sparse_flag == True:
             invA = np.linalg.inv(self.A)
 
         # Loop through all equations
@@ -514,7 +514,7 @@ class DirectSolver(EigenValueSolver):
 
         ret = sparse.bsr_matrix((data, indices, indptr), shape=(n_eq*N, n_eq*N))
 
-        if sparse_flag == False:
+        if self.sparse_flag == False:
             ret = ret.todense()
 
         return ret
