@@ -91,7 +91,6 @@ class StratBox():
 
         # Create main group and set attributes
         if "main" not in hf:
-            #print('Creating main group')
             g_main = hf.create_group('main')
             for k in self.param.keys():
                 # HDF does not accept None; convert to string
@@ -100,8 +99,6 @@ class StratBox():
                 else:
                     g_main.attrs[k] = 'None'
         else:
-            #print('Main group exists')
-
             # Group exists: check all attributes
             g_main = hf['main']
 
@@ -109,7 +106,6 @@ class StratBox():
                 if k not in g_main.attrs:
                     raise ValueError('Missing attribute in hdf file:', k)
                 if np.atleast_1d(g_main.attrs[k])[0] != 'None':
-                    #print(g_main.attrs[k], self.param[k])
                     if (g_main.attrs[k] != self.param[k]).any():
                         raise ValueError('Attr has wrong value in hdf file:', k)
                 else:
@@ -121,27 +117,6 @@ class StratBox():
                     raise ValueError('Extra attribute in hdf file:', k)
 
         hf.close()
-
-    #######################################
-    # Methods for changing box parameters #
-    #######################################
-
-    #def set_stokes_range(self, stokes_range):
-    #    self.param['stokes_range'] = stokes_range
-    #    # Need to recalculate background
-    #    self.solve_background(-1)
-
-    #def set_viscosity(self, viscous_alpha,
-    #                  neglect_gas_viscosity=True):
-    #    self.param['viscous_alpha'] = viscous_alpha
-    #    self.param['neglect_gas_viscosity'] = bool(neglect_gas_viscosity)
-
-    #    # Need to recalculate background
-    #    self.solve_background(-1)
-
-    #def set_n_dust(self, n_dust):
-    #    # Need to recalculate background
-    #    self.solve_background(n_dust)
 
     ###############################
     # Solve for equilibrium state #
@@ -179,10 +154,6 @@ class StratBox():
     def find_eigenvalues(self, wave_number_x, N, L=1,
                          sparse_flag=False, sigma=None, n_eig=6,
                          n_safe_levels=1, use_PETSc=False, label=None):
-        # THIS IS BAD
-        #self.kx = wave_number_x
-        #self.L = L
-        #self.N = N
         ngl = self.param['neglect_gas_viscosity']
         n_eq = 4 + 4*self.param['n_dust']
 
@@ -210,18 +181,6 @@ class StratBox():
             self.add_group_to_file(eig. vec, wave_number_x, N, L, label)
 
         return eig, vec, rad
-
-    #def select_growing_eigenvalues(self):
-    #    eig_select = []
-    #    vec_select = []
-    #    if len(self.eig) > 0:
-    #        for n, v in enumerate(self.vec):
-    #            if np.imag(self.eig[n]) > 0:
-    #                eig_select.append(self.eig[n])
-    #                vec_select.append(self.vec[n])
-
-    #    self.eig = eig_select
-    #    self.vec = vec_select
 
     #####################################
     # Saving/reading modes to/from file #
@@ -274,7 +233,6 @@ class StratBox():
         hf.close()
 
         return ret
-
 
     def read_mode_from_file(self, label):
         hf = h5.File(self.filename, 'r')
