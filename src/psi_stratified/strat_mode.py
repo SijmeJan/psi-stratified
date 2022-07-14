@@ -6,12 +6,18 @@ from .direct import DirectSolver
 from .stokesdensity import StokesDensity
 
 class StratBox():
+    ################
+    # Constructors #
+    ################
+
     def __init__(self,
                  metallicity,
                  stokes_range,
                  viscous_alpha,
                  stokes_density_dict=None,
-                 neglect_gas_viscosity=True):
+                 neglect_gas_viscosity=True,
+                 n_dust=1,
+                 filename=None):
         # Dictionary containing parameters
         self.param = {}
 
@@ -21,16 +27,19 @@ class StratBox():
         self.param['viscous_alpha'] = viscous_alpha
         self.param['stokes_density_dict'] = stokes_density_dict
         self.param['neglect_gas_viscosity'] = bool(neglect_gas_viscosity)
-
-        # Set number of dust sizes to invalid
-        self.n_dust = -1
+        self.param['n_dust'] = n_dust
 
         # Create direct solver
         self.di = DirectSolver(interval=[-np.inf, np.inf],
                                symmetry=None, basis='Hermite')
 
-        self.eig = []
-        self.vec = []
+        # Solve for background state
+        self.eq = self.solve_background()
+
+        # Create or check file
+        self.filename = filename
+        if self.filename is not None:
+            self.check_main_group(self.filename)
 
     @classmethod
     def from_file(cls, filename):
@@ -47,14 +56,26 @@ class StratBox():
                 raise ValueError('{} not present in hdf file'.format(k))
 
         # Construct stokes_density_dict
-        stokes_density_dict = StratBox.get_stokes_density_dict(g_main.attrs)
+        stokes_density_dict = g_main.attrs['stokes_density_dict']
+        if stokes_density_dict == 'None':
+            stokes_density_dict = None
+
+        metallicity = g_main.attrs['metallicity']
+        stokes_range = g_main.attrs['stokes_range']
+        viscous_alpha = g_main.attrs['viscous_alpha']
+        ngl = g_main.attrs['neglect_gas_viscosity']
+        n_dust = g_main.attrs['n_dust']
+
+        hf.close()
 
         # Create class
-        return cls(g_main.attrs['metallicity'],
-                   g_main.attrs['stokes_range'],
-                   g_main.attrs['viscous_alpha'],
+        return cls(metallicity,
+                   stokes_range,
+                   viscous_alpha,
                    stokes_density_dict=stokes_density_dict,
-                   neglect_gas_viscosity=g_main.attrs['neglect_gas_viscosity'])
+                   neglect_gas_viscosity=ngl,
+                   n_dust=n_dust,
+                   filename=filename)
 
     @staticmethod
     def required_parameters():
@@ -62,175 +83,15 @@ class StratBox():
         return ['metallicity',
                 'stokes_range',
                 'viscous_alpha',
-                'neglect_gas_viscosity']
+                'neglect_gas_viscosity',
+                'n_dust']
 
-    @staticmethod
-    def get_stokes_density_dict(attrs):
-        required_keys = StratBox.required_parameters()
-
-        # Construct stokes_density_dict
-        stokes_density_dict = {}
-        for k in attrs:
-            stokes_density_dict[k] = attrs[k]
-        # Remove required keys; anything left is in stokes_density_dict
-        for k in required_keys:
-            stokes_density_dict.pop(k)
-
-        if len(stokes_density_dict) == 0:
-            stokes_density_dict = None
-
-        return stokes_density_dict
-
-    def set_stokes_range(self, stokes_range):
-        self.param['stokes_range'] = stokes_range
-        # Create StokesDensity
-        #self.sigma = StokesDensity(stokes_range,
-        #                           self.param['stokes_density_dict'] )
-
-        # Need to recalculate background
-        self.solve_background(-1)
-
-    def set_viscosity(self, viscous_alpha,
-                      neglect_gas_viscosity=True):
-        self.param['viscous_alpha'] = viscous_alpha
-        self.param['neglect_gas_viscosity'] = bool(neglect_gas_viscosity)
-
-        # Need to recalculate background
-        self.solve_background(-1)
-
-    def set_n_dust(self, n_dust):
-        self.solve_background(n_dust)
-
-    def solve_background(self, n_dust, N_back=1000):
-        if self.n_dust != n_dust or n_dust < 0:
-            if n_dust < 0:
-                n_dust = self.n_dust
-
-            # Create StokesDensity
-            stokes_range = np.atleast_1d(self.param['stokes_range'])
-            if n_dust == 1 and len(stokes_range) > 1:
-                print('Warning: switching to monodisperse StokesDensity because n_dust == 1')
-                self.sigma = StokesDensity(self.param['stokes_range'][-1],
-                                           self.param['stokes_density_dict'])
-            else:
-                self.sigma = StokesDensity(self.param['stokes_range'],
-                                           self.param['stokes_density_dict'])
-
-            #print("Calculating background with {} dust size(s)".format(n_dust))
-            self.n_dust = n_dust
-            metallicity = self.param['metallicity']
-            self.eq = EquilibriumBVP(self.sigma,
-                                     self.n_dust,
-                                     viscous_alpha=self.param['viscous_alpha'],
-                                     dust_to_gas_ratio=100*metallicity)
-            self.eq.set_metallicity(metallicity)
-
-            ngl = self.param['neglect_gas_viscosity']
-            self.eq.solve(N_back, neglect_gas_viscosity=ngl)
-
-    def find_eigenvalues(self, wave_number_x, N, L=1, n_dust=1,
-                         sparse_flag=False, sigma=None, n_eig=6,
-                         n_safe_levels=1, use_PETSc=False):
-        if self.sigma.stokes_min is None and n_dust > 1:
-            print("Warning: setting n_dust=1 because monodisperse!")
-            n_dust = 1
-
-        self.solve_background(n_dust)
-
-        self.kx = wave_number_x
-        self.L = L
-        self.N = N
-        self.n_dust = n_dust
-        ngl = self.param['neglect_gas_viscosity']
-
-        degen = 1
-        #if sparse_flag == True:
-        #    degen = n_eig
-        self.eig, self.vec, self.rad = \
-          self.di.safe_solve(N,
-                             L=L,
-                             n_eq=4 + 4*self.n_dust,
-                             sparse_flag=sparse_flag,
-                             sigma=sigma, n_eig=n_eig,
-                             use_PETSc=use_PETSc,
-                             degeneracy=degen,
-                             n_safe_levels=n_safe_levels,
-                             kx=wave_number_x,
-                             equilibrium=self.eq,
-                             neglect_gas_viscosity=ngl)
-
-    def select_growing_eigenvalues(self):
-        eig_select = []
-        vec_select = []
-        if len(self.eig) > 0:
-            for n, v in enumerate(self.vec):
-                if np.imag(self.eig[n]) > 0:
-                    eig_select.append(self.eig[n])
-                    vec_select.append(self.vec[n])
-
-        self.eig = eig_select
-        self.vec = vec_select
-
-    def read_from_file(self, filename, wave_number_x, N, L, n_dust):
-        hf = h5.File(filename, 'r')
-
-        k_string = str(int(wave_number_x))
-
-        if "main" not in hf:
-            raise RunTimeError("main group not in hdf file")
-        g_main = hf['main']
-
-        # Check if attributes file match current StratBox
-        for k in StratBox.required_parameters():
-            if g_main.attrs[k] != self.param[k]:
-                raise ValueError('Parameter {} not equal in hdf file!')
-        stokes_dict_hdf = StratBox.get_stokes_density_dict(g_main.attrs)
-        stokes_dict_par = self.param['stokes_density_dict']
-        if stokes_dict_hdf is None:
-            if stokes_dict_par is not None:
-                raise ValueError('missing stokes_density_dict in hdf file')
-        elif len(stokes_dict_hdf) !=len(stokes_dict_par):
-            raise ValueError('different stokes_density_dict in hdf file')
-        else:
-            for k in stokes_dict_hdf:
-                if stokes_dict_hdf[k] != stokes_dict_par[k]:
-                    raise ValueError('diff stokes_density_dict in hdf file')
-
-        # Work our way through groups to the data
-        if k_string not in g_main:
-            raise RuntimeError("kx group not in hdf file")
-        g_kx = g_main[k_string]
-        if str(N) not in g_kx:
-            raise RuntimeError("N group not in hdf file")
-        g_N = g_kx[str(N)]
-        if str(n_dust) not in g_N:
-            raise RuntimeError("n_dust group not in hdf file")
-        g_n_dust = g_N[str(n_dust)]
-        if str(n_dust) not in g_N:
-            raise RuntimeError("n_dust group not in hdf file")
-        Lstring = '{:.2e}'.format(L)
-        if Lstring not in g_n_dust:
-            raise RuntimeError("L group not in hdf file ", Lstring)
-        g_L = g_n_dust[Lstring]
-
-        # Get data
-        self.eig = g_L.get('eigenvalues')[()]
-        self.vec = g_L.get('eigenvectors')[()]
-
-        # Set background
-        self.solve_background(n_dust)
-        self.kx = wave_number_x
-        self.L = L
-
-        # Correct resolution for direct solver
-        self.di.set_resolution(N, L=L, n_eq=4+4*n_dust)
-
-    def save(self, filename):
+    def check_main_group(self, filename):
         hf = h5.File(filename, 'a')
 
         # Create main group and set attributes
         if "main" not in hf:
-            print('Creating main group')
+            #print('Creating main group')
             g_main = hf.create_group('main')
             for k in self.param.keys():
                 # HDF does not accept None; convert to string
@@ -239,7 +100,7 @@ class StratBox():
                 else:
                     g_main.attrs[k] = 'None'
         else:
-            print('Main group exists')
+            #print('Main group exists')
 
             # Group exists: check all attributes
             g_main = hf['main']
@@ -247,8 +108,9 @@ class StratBox():
             for k in self.param.keys():
                 if k not in g_main.attrs:
                     raise ValueError('Missing attribute in hdf file:', k)
-                if g_main.attrs[k] != 'None':
-                    if g_main.attrs[k] != self.param[k]:
+                if np.atleast_1d(g_main.attrs[k])[0] != 'None':
+                    #print(g_main.attrs[k], self.param[k])
+                    if (g_main.attrs[k] != self.param[k]).any():
                         raise ValueError('Attr has wrong value in hdf file:', k)
                 else:
                     if self.param[k] is not None:
@@ -258,91 +120,274 @@ class StratBox():
                 if k not in self.param:
                     raise ValueError('Extra attribute in hdf file:', k)
 
-        if len(np.atleast_1d(self.eig)) > 0:
-            # Compute N from length of eigenvector
-            n_eq=4 + 4*self.n_dust
-            N = int(len(self.vec[0])/n_eq)
+        hf.close()
 
-            k_string = str(int(self.kx))
+    #######################################
+    # Methods for changing box parameters #
+    #######################################
 
-            if k_string not in g_main:
-                print('Creating new k group')
-                g_kx = g_main.create_group(k_string)
-            else:
-                g_kx = g_main[k_string]
+    #def set_stokes_range(self, stokes_range):
+    #    self.param['stokes_range'] = stokes_range
+    #    # Need to recalculate background
+    #    self.solve_background(-1)
 
-            if str(N) not in g_kx:
-                print('Creating new N group')
-                g_N = g_kx.create_group(str(N))
-            else:
-                g_N = g_kx[str(N)]
+    #def set_viscosity(self, viscous_alpha,
+    #                  neglect_gas_viscosity=True):
+    #    self.param['viscous_alpha'] = viscous_alpha
+    #    self.param['neglect_gas_viscosity'] = bool(neglect_gas_viscosity)
 
-            if str(self.n_dust) not in g_N:
-                print('Creating new n_dust group')
-                g_n_dust = g_N.create_group(str(self.n_dust))
-            else:
-                g_n_dust = g_N[str(self.n_dust)]
-                #print('Warning: replacing eigenvalues and eigenvectors!')
-                #del g_n_dust['eigenvalues']
-                #del g_n_dust['eigenvectors']
+    #    # Need to recalculate background
+    #    self.solve_background(-1)
 
-            Lstring = '{:.2e}'.format(self.L)
-            if Lstring not in g_n_dust:
-                print('Creating new L group {}'.format(Lstring))
-                g_L = g_n_dust.create_group(Lstring)
-            else:
-                g_L = g_n_dust[Lstring]
-                print('Warning: replacing eigenvalues and eigenvectors!')
-                del g_L['eigenvalues']
-                del g_L['eigenvectors']
+    #def set_n_dust(self, n_dust):
+    #    # Need to recalculate background
+    #    self.solve_background(n_dust)
 
+    ###############################
+    # Solve for equilibrium state #
+    ###############################
 
-            g_L.create_dataset('eigenvalues', data=self.eig)
-            g_L.create_dataset('eigenvectors', data=self.vec)
+    def stokes_density(self):
+        # Create StokesDensity
+        stokes_range = np.atleast_1d(self.param['stokes_range'])
+        if self.param['n_dust'] == 1 and len(stokes_range) > 1:
+            print('Warning: switching to monodisperse StokesDensity because n_dust == 1')
+            sigma = StokesDensity(self.param['stokes_range'][-1],
+                                  self.param['stokes_density_dict'])
+        else:
+            sigma = StokesDensity(self.param['stokes_range'],
+                                  self.param['stokes_density_dict'])
+
+        return sigma
+
+    def solve_background(self, N_back=1000):
+        eq = EquilibriumBVP(self.stokes_density(),
+                            self.param['n_dust'],
+                            viscous_alpha=self.param['viscous_alpha'],
+                            dust_to_gas_ratio=100*self.param['metallicity'])
+        eq.set_metallicity(self.param['metallicity'])
+
+        ngl = self.param['neglect_gas_viscosity']
+        eq.solve(N_back, neglect_gas_viscosity=ngl)
+
+        return eq
+
+    ##########################
+    # Solve for linear modes #
+    ##########################
+
+    def find_eigenvalues(self, wave_number_x, N, L=1,
+                         sparse_flag=False, sigma=None, n_eig=6,
+                         n_safe_levels=1, use_PETSc=False, label=None):
+        # THIS IS BAD
+        #self.kx = wave_number_x
+        #self.L = L
+        #self.N = N
+        ngl = self.param['neglect_gas_viscosity']
+        n_eq = 4 + 4*self.param['n_dust']
+
+        degen = 1
+        #if sparse_flag == True:
+        #    degen = n_eig
+        eig, vec, rad = \
+          self.di.safe_solve(N,
+                             L=L,
+                             n_eq=n_eq,
+                             sigma=sigma, n_eig=n_eig,
+                             degeneracy=degen,
+                             n_safe_levels=n_safe_levels,
+                             kx=wave_number_x,              # kwarg for M
+                             equilibrium=self.eq,           # kwarg for M
+                             neglect_gas_viscosity=ngl)     # kwarg for M
+
+        # Sort according to imaginary part: fastest growing first
+        if len(eig) > 1:
+            idx= np.argsort(-np.imag(eig))
+            eig = eig[idx]
+            vec = vec[idx]
+
+        if self.filename is not None and label is not None:
+            self.add_group_to_file(eig. vec, wave_number_x, N, L, label)
+
+        return eig, vec, rad
+
+    #def select_growing_eigenvalues(self):
+    #    eig_select = []
+    #    vec_select = []
+    #    if len(self.eig) > 0:
+    #        for n, v in enumerate(self.vec):
+    #            if np.imag(self.eig[n]) > 0:
+    #                eig_select.append(self.eig[n])
+    #                vec_select.append(self.vec[n])
+
+    #    self.eig = eig_select
+    #    self.vec = vec_select
+
+    #####################################
+    # Saving/reading modes to/from file #
+    #####################################
+
+    def add_group_to_file(self, eig, vec, kx, L, label):
+        if self.filename is None:
+            print('Can not add group to file: no filename specified')
+            return
+
+        N = int(len(vec[0,:])/(4 + 4*self.param['n_dust']))
+
+        hf = h5.File(self.filename, 'a')
+        g_main = hf['main']
+
+        if 'modes' not in g_main:
+            print('Creating modes group')
+            g_modes = g_main.create_group('modes')
+        else:
+            g_modes = g_main['modes']
+
+        if label in g_modes:
+            print('Warning: deleting group ', label)
+            del g_modes[label]
+
+        g_label = g_modes.create_group(label)
+        g_label.attrs['kx'] = kx
+        g_label.attrs['N'] = N
+        g_label.attrs['L'] = L
+
+        for i in range(0, len(eig)):
+            g = g_label.create_group(str(i))
+            g.attrs['eigenvalue'] = eig[i]
+
+            print('Saving eigenvalue {} under '.format(eig[i]), str(i))
+
+            g.create_dataset('eigenvector', data=vec[i])
 
         hf.close()
 
-    def evaluate_velocity_form(self, z, vec, k=0):
-        n_eq = 4 + 4*self.n_dust
+    def get_modes_in_label(self, label):
+        hf = h5.File(self.filename, 'r')
 
-        if k == 0:
-            u = self.di.evaluate(z, vec, n_eq=n_eq)
+        g = hf['main/modes/' + label]
 
-            rhog0 = self.eq.gasdens(z)
-            rhod0 = self.eq.sigma(z)[0,:]
+        ret = []
+        for i in g.keys():
+            ret.extend(i)
 
-            u[0,:] = u[0,:]/rhog0
-            u[1,:] = u[1,:]/rhog0
-            u[2,:] = u[2,:]/rhog0
-            u[3,:] = u[3,:]/rhog0
-            for n in range(0, self.n_dust):
-                rhod0 = self.eq.sigma(z)[n,:]
+        hf.close()
 
-                u[4+4*n,:] = u[4+4*n,:]/rhod0
-                u[5+4*n,:] = u[5+4*n,:]/rhod0
-                u[6+4*n,:] = u[6+4*n,:]/rhod0
-                u[7+4*n,:] = u[7+4*n,:]/rhod0
+        return ret
 
-        elif k == 1:
-            u = self.di.evaluate(z, vec, n_eq=n_eq)
-            du = self.di.evaluate(z, vec, n_eq=n_eq, k=1)
 
-            rhog0 = self.eq.gasdens(z)
-            dlogrhogdz = self.eq.dlogrhogdz(z)
+    def read_mode_from_file(self, label):
+        hf = h5.File(self.filename, 'r')
 
-            u[0,:] = (du[0,:] - u[0,:]*dlogrhogdz)/rhog0
-            u[1,:] = (du[1,:] - u[1,:]*dlogrhogdz)/rhog0
-            u[2,:] = (du[2,:] - u[2,:]*dlogrhogdz)/rhog0
-            u[3,:] = (du[3,:] - u[3,:]*dlogrhogdz)/rhog0
-            for n in range(0, self.n_dust):
-                rhod0 = self.eq.sigma(z)[n,:]
-                dlogrhoddz = self.eq.dlogsigmadz(z)[n,:]
+        g = hf['main/modes/' + label]
+        eigenvalue = g.attrs['eigenvalue']
 
-                u[4+4*n,:] = (du[4+4*n,:] - u[4+4*n,:]*dlogrhoddz)/rhod0
-                u[5+4*n,:] = (du[5+4*n,:] - u[5+4*n,:]*dlogrhoddz)/rhod0
-                u[6+4*n,:] = (du[6+4*n,:] - u[6+4*n,:]*dlogrhoddz)/rhod0
-                u[7+4*n,:] = (du[7+4*n,:] - u[7+4*n,:]*dlogrhoddz)/rhod0
-        else:
-            raise RunTimeError('Not implemented')
+        vec = g.get('eigenvector')[()]
+        z = None
+        if 'z' in g:
+            z = g.get('z')[()]
+        u = None
+        if 'u' in g:
+            u = g.get('u')[()]
+        du = None
+        if 'du' in g:
+            du = g.get('du')[()]
 
-        return u
+        kx = g.parent.attrs['kx']
+
+        hf.close()
+
+        return kx, eigenvalue, vec, z, u, du
+
+    def compute_z(self, label, z):
+        if self.filename is None:
+            print('Can not compute z: no filename specified')
+            return
+
+        hf = h5.File(self.filename, 'a')
+        g_main = hf['main']
+
+        if 'modes' not in g_main:
+            print('Error: modes group does not exist')
+        g_modes = g_main['modes']
+
+        if label not in g_modes:
+            print('Error: group does not exist:', label)
+        g_label = g_modes[label]
+
+        self.di.set_resolution(g_label.attrs['N'],
+                               L=g_label.attrs['L'],
+                               n_eq=4 + 4*self.param['n_dust'])
+
+        for k in g_label.keys():
+            g = g_label[k]
+
+            if 'z' in g:
+                print('Warning: replacing z')
+                del g['z']
+            if 'u' in g:
+                print('Warning: replacing u')
+                del g['u']
+            if 'du' in g:
+                print('Warning: replacing du')
+                del g['du']
+
+            vec = g.get('eigenvector')[()]
+
+            u, du = self.evaluate_velocity_form(z, vec)
+
+            g.create_dataset('z', data=z)
+            g.create_dataset('u', data=u)
+            g.create_dataset('du', data=du)
+
+        hf.close()
+
+    def evaluate_velocity_form(self, z, vec):
+        n_eq = 4 + 4*self.param['n_dust']
+
+        u = self.di.evaluate(z, vec, n_eq=n_eq)
+        du = self.di.evaluate(z, vec, n_eq=n_eq, k=1)
+
+        rhog0 = self.eq.gasdens(z)
+        dlogrhogdz = self.eq.dlogrhogdz(z)
+
+        du[0,:] = (du[0,:] - u[0,:]*dlogrhogdz)/rhog0
+        du[1,:] = (du[1,:] - u[1,:]*dlogrhogdz)/rhog0
+        du[2,:] = (du[2,:] - u[2,:]*dlogrhogdz)/rhog0
+        du[3,:] = (du[3,:] - u[3,:]*dlogrhogdz)/rhog0
+        for n in range(0, self.param['n_dust']):
+            rhod0 = self.eq.sigma(z)[n,:]
+            dlogrhoddz = self.eq.dlogsigmadz(z)[n,:]
+
+            du[4+4*n,:] = (du[4+4*n,:] - u[4+4*n,:]*dlogrhoddz)/rhod0
+            du[5+4*n,:] = (du[5+4*n,:] - u[5+4*n,:]*dlogrhoddz)/rhod0
+            du[6+4*n,:] = (du[6+4*n,:] - u[6+4*n,:]*dlogrhoddz)/rhod0
+            du[7+4*n,:] = (du[7+4*n,:] - u[7+4*n,:]*dlogrhoddz)/rhod0
+
+        u[0,:] = u[0,:]/rhog0
+        u[1,:] = u[1,:]/rhog0
+        u[2,:] = u[2,:]/rhog0
+        u[3,:] = u[3,:]/rhog0
+        for n in range(0, self.param['n_dust']):
+            rhod0 = self.eq.sigma(z)[n,:]
+
+            u[4+4*n,:] = u[4+4*n,:]/rhod0
+            u[5+4*n,:] = u[5+4*n,:]/rhod0
+            u[6+4*n,:] = u[6+4*n,:]/rhod0
+            u[7+4*n,:] = u[7+4*n,:]/rhod0
+
+        return u, du
+
+    def get_total_dust_density(self, z, u):
+        wt = self.eq.tau*self.eq.weights
+
+        # Calculate total dust density perturbation
+        dust_rho = self.eq.sigma(z)[0,:]*u[4,:]*wt[0]
+        dust_rho0 = self.eq.sigma(z)[0,:]*wt[0]
+        for i in range(1, len(self.eq.tau)):
+            dust_rho = dust_rho + \
+              self.eq.sigma(z)[i,:]*u[4*(i+1),:]*wt[i]
+            dust_rho0 = dust_rho0 + \
+              self.eq.sigma(z)[i,:]*wt[i]
+
+        return dust_rho/dust_rho0
