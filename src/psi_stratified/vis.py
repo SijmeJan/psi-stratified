@@ -6,37 +6,24 @@ from matplotlib.backends.backend_pdf import PdfPages
 from .energy import energy_decomposition
 from .tools import norm_factor_dust_density
 from .tracker import TrackerFile
+from .strat_mode import StratBox
 
-def plot_equilibrium(eq, interval=[0,1]):
+def plot_equilibrium(sb):
+    zmax = \
+      0.05*np.sqrt(sb.param['viscous_alpha']/1.0e-6)*np.sqrt(0.01/sb.eq.tau[-1])
+    z = np.linspace(-zmax, zmax, 1000)
+
+    rhog, sigma, mu, dust_rho, vx, vy, ux, uy, uz = sb.eq.get_state(z)
+
     fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, sharex=True)
 
     plt.suptitle('Equilibrium solution')
-    z = np.linspace(interval[0], interval[1], 1000)
-
-    rhog = eq.gasdens(z)
-    sigma = eq.sigma(z)
-    mu = eq.epsilon(z)
-
-    dust_rho = sigma[0,:]*eq.tau[0]*eq.weights[0]
-    for i in range(1, len(eq.tau)):
-        dust_rho = dust_rho + sigma[i,:]*eq.tau[i]*eq.weights[i]
-    dust_rho = dust_rho/rhog
-
-    vx, vy, ux, uy = eq.evaluate(z, k=0)
-    #dvx, dvy, dux, duy = eq.evaluate(z, k=1)
-    #d2vx, d2vy, d2ux, d2uy = eq.evaluate(z, k=2)
-
-    uz = eq.uz(z)
 
     ax1.set_ylabel(r'$\mu$')
-    #ax1.set_yscale('log')
-    #for i in range(0, len(uz)):
-    #    ax1.plot(z, mu[i,:])
     ax1.plot(z, dust_rho, linewidth=2)
 
     ax2.set_ylabel(r'$\rho_{\rm g}$')
     ax2.plot(z, rhog)
-    #ax2.plot(z, np.exp(-0.5*z*z))
 
     ax3.set_ylabel(r'$u_z$')
     for i in range(0, len(uz)):
@@ -57,15 +44,14 @@ def plot_equilibrium(eq, interval=[0,1]):
 
     return fig
 
-def plot_eigenmode(sb, eig, vec, interval=[0,1]):
-    n_eq = 4 + 4*sb.n_dust
+def plot_eigenmode(sb, label):  #eig, u, z, n_dust=1):
+    kx, eig, vec, z, u, du = sb.read_mode_from_file(label)
+
+    n_eq = 4 + 4*sb.param['n_dust']
 
     fig, axes = plt.subplots(5, 1, sharex=True)
 
-    z = np.linspace(interval[0], interval[1], 1000)
-
     plt.suptitle('Eigenvalue: '+ str(eig))
-    u = sb.evaluate_velocity_form(z, vec)
 
     # Normalize by largest dust density perturbation
     norm_fac = norm_factor_dust_density(u, sb.eq.sigma(z),
@@ -102,21 +88,18 @@ def plot_eigenmode(sb, eig, vec, interval=[0,1]):
             if i == 4:
                 axes[n].plot(z, np.real(dust_rho), linewidth=2)
                 axes[n].plot(z, np.imag(dust_rho), linewidth=2)
-
-            #print(i)
-            #axes[n].plot(z, np.real(u[i,:]))
-            #axes[n].plot(z, np.imag(u[i,:]))
         elif n == 1:
             axes[n].plot(z, np.real(u[i,:]))
             axes[n].plot(z, np.imag(u[i,:]))
         else:
             axes[n].plot(z, np.abs(u[i,:]))
 
-    #plt.show()
     return fig
 
-def plot_coefficients(sb, eig, vec):
-    n_eq = 4 + 4*sb.n_dust
+def plot_coefficients(sb, label):
+    kx, eig, vec, z, u, du = sb.read_mode_from_file(label)
+
+    n_eq = 4 + 4*sb.param['n_dust']
 
     fig, ax = plt.subplots(1, 1)
 
@@ -131,16 +114,15 @@ def plot_coefficients(sb, eig, vec):
     for i in range(0, n_eq):
         ax.plot(np.abs(vec[i,:]))
 
-    #plt.show()
     return fig
 
-def plot_energy_decomposition(sb, eig, vec, kx, interval=[0,1]):
+def plot_energy_decomposition(sb, label): #eig, vec, kx, u, du, z):
+    kx, eig, vec, z, u, du = sb.read_mode_from_file(label)
+
     # omega = i*s + w
     fig, ax = plt.subplots(1, 1)
 
-    z = np.linspace(interval[0], interval[1], 1000)
-
-    U1, U2, U3, U4, U5, Utot = energy_decomposition(z, sb, eig, vec, kx)
+    U1, U2, U3, U4, U5, Utot = energy_decomposition(z, sb, eig, vec, kx, u, du)
 
     plt.suptitle('Eigenvalue: '+ str(eig))
 
@@ -154,15 +136,15 @@ def plot_energy_decomposition(sb, eig, vec, kx, interval=[0,1]):
     ax.legend()
     return fig
 
-def plot_contour_dust_density(sb, eig, vec, interval=[0,1]):
-    n_eq = 4 + 4*sb.n_dust
+def plot_contour_dust_density(sb, eig, vec, z):
+    kx, eig, vec, z, u, du = sb.read_mode_from_file(label)
+
+    n_eq = 4 + 4*sb.param['n_dust']
 
     fig, axes = plt.subplots(2, 1, sharex=True)
 
-    z = np.linspace(interval[0], interval[1], 1000)
-
     plt.suptitle('Eigenvalue: '+ str(eig))
-    u = sb.evaluate_velocity_form(z, vec)
+    #u = sb.evaluate_velocity_form(z, vec)
 
     # Normalize by largest dust density perturbation
     norm_fac = norm_factor_dust_density(u, sb.eq.sigma(z),
@@ -203,34 +185,35 @@ def plot_stokes_dist(eq):
 
     return fig
 
-def plot_pdf(sb):
-    zmax = 0.05*np.sqrt(sb.param['viscous_alpha']/1.0e-6)*np.sqrt(0.01/sb.eq.tau[-1])
-    z_interval = [-zmax, zmax]
+def plot_pdf(filename, label):
+    sb = StratBox.from_file(filename)
+
     pp = PdfPages('temp.pdf')
 
-    fig = plot_equilibrium(sb.eq, interval=z_interval)
+    fig = plot_equilibrium(sb)
     pp.savefig(fig)
+    plt.close(fig)
 
-    if sb.n_dust > 1:
+    if sb.param['n_dust'] > 1:
         fig = plot_stokes_dist(sb.eq)
-        pp.savefig(fig)
-
-    for n, v in enumerate(sb.vec):
-        fig = plot_eigenmode(sb, sb.eig[n], v, interval=z_interval)
         pp.savefig(fig)
         plt.close(fig)
 
-        if sb.n_dust > 1:
-            fig = plot_contour_dust_density(sb, sb.eig[n],v,interval=z_interval)
+    for l in sb.get_modes_in_label(label):
+        fig = plot_eigenmode(sb, label + '/' + l)
+        pp.savefig(fig)
+        plt.close(fig)
+
+        if sb.param['n_dust'] > 1:
+            fig = plot_contour_dust_density(sb, label + '/' + l)
             pp.savefig(fig)
             plt.close(fig)
 
-        fig = plot_energy_decomposition(sb, sb.eig[n], v, sb.kx,
-                                        interval=z_interval)
+        fig = plot_energy_decomposition(sb, label + '/' + l)
         pp.savefig(fig)
         plt.close(fig)
 
-        fig = plot_coefficients(sb, sb.eig[n], v)
+        fig = plot_coefficients(sb, label + '/' + l)
         pp.savefig(fig)
         plt.close(fig)
 
