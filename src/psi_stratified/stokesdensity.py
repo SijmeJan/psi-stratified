@@ -1,72 +1,95 @@
-#!/usr/bin/python
-#
-# Copyright 2020 Colin McNally, Sijme-Jan Paardekooper, Francesco Lovascio
-#    colin@colinmcnally.ca, s.j.paardekooper@qmul.ac.uk, f.lovascio@qmul.ac.uk
-#
-#    This file is part of psitools.
-#
-#    psitools is free software: you can redistribute it and/or modify
-#    it under the terms of the GNU General Public License as published by
-#    the Free Software Foundation, either version 3 of the License, or
-#    (at your option) any later version.
-#
-#    psitools is distributed in the hope that it will be useful,
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#    GNU General Public License for more details.
-#
-#    You should have received a copy of the GNU General Public License
-#    along with psitools.  If not, see <https://www.gnu.org/licenses/>.
-#
+# -*- coding: utf-8 -*-
+"""Module containing StokesDensity class.
+"""
 
 import numpy as np
-import scipy.integrate as integrate
-
+from scipy import integrate
 
 class StokesDensity():
+    """Class describing distribution of dust over Stokes number.
+
+    Attributes:
+        stokes_min: minimum Stokes number. In case of monodisperse dust, it
+            is set to None.
+        stokes_max: maximum Stokes number.
+        param: dictionary containing additional parameters for Stokes density.
+        sigma_norm: Stokes density function (normalized).
+    """
+
     def __init__(self, stokes_range, param_dict=None):
+        """Create StokesDensity instance.
+
+        Args:
+            stokes_range: [minimum, maximum] Stokes number in distribution
+            param_dict: dictionary containing additional information about
+                the distribution
+
+        """
 
         stokes_range = np.atleast_1d(stokes_range)
 
+        self.param = param_dict
+
         if len(stokes_range) == 1:
-            #print('Creating monodisperse StokesDensity')
             self.stokes_min = None
             self.stokes_max = stokes_range[0]
-            self.f = lambda x: self.stokes_max
+            #self.f = lambda x: self.stokes_max
         elif len(stokes_range) == 2:
-            #print('Creating polydisperse StokesDensity')
             self.stokes_min = stokes_range[0]
             self.stokes_max = stokes_range[1]
 
             # Default: MRN power law. TODO: other distributions via dict
-            self.sigma0 = lambda s: np.power(s, -0.5)
+            def sigma0(stk):
+                return np.power(stk, -0.5)
 
             # Normalization factor
-            norm = integrate.quad(self.sigma0,
+            norm = integrate.quad(sigma0,
                                   self.stokes_min,
                                   self.stokes_max)[0]
-            self.f = \
-              lambda x: self.stokes_max*self.sigma0(self.stokes_max*x)/norm
+
+            self.sigma_norm = lambda s: sigma0(s)/norm
+            #self.f = \
+            #  lambda x: self.stokes_max*self.sigma0(self.stokes_max*x)/self.norm
         else:
             raise ValueError('stokes_range needs to have either 1 or 2 elements')
 
-        # Empty list of poles
-        #self.poles = []
+    def sigma(self, stokes_number):
+        """Calculate normalized Stokes density.
 
-    #def __call__(self, x):
-    #    """Return stokes_max*sigma(stokes_max*x)/norm"""
-    #    return self.f(x)
+        Args:
+            stokes_number: Stokes number at which Stokes density is required
 
-    def sigma(self, x):
-        return self.f(x/self.stokes_max)/self.stokes_max
+        Returns:
+            Normalized Stokes density at required Stokes number. In the
+            monodisperse limit, returns 1.
+
+        """
+
+        if self.stokes_min is None:
+            # Monodisperse limit
+            return 1
+
+        return self.sigma_norm(stokes_number)
+        #return self.f(x/self.stokes_max)/self.stokes_max
 
     def integrate(self, func):
-        """Integrate sigma*func over all sizes"""
-        if self.stokes_min is not None:
-            g = lambda x: self.f(x)*func(self.stokes_max*x)
-            return integrate.fixed_quad(g,
-                                        self.stokes_min/self.stokes_max,
-                                        1,
-                                        n=50)[0]
-        else:
+        """Integrate sigma*func over all Stokes numbers.
+
+        Args:
+            func: function to integrate.
+
+        Returns:
+            Integral of sigma*func over all Stokes numbers.
+
+        """
+
+        if self.stokes_min is None:
+            # Monodisperse limit
             return func(self.stokes_max)
+
+        #g = lambda x: self.f(x)*func(self.stokes_max*x)
+        return integrate.fixed_quad(lambda x: self.stokes_max*\
+            self.sigma_norm(self.stokes_max*x)*func(self.stokes_max*x),
+                                    self.stokes_min/self.stokes_max,
+                                    1,
+                                    n=50)[0]

@@ -1,11 +1,37 @@
+# -*- coding: utf-8 -*-
+"""Module containing StratBox class.
+"""
+
 import numpy as np
 import h5py as h5
 
-from .equilibrium import EquilibriumBVP
+from .equilibrium import Equilibrium
 from .direct import DirectSolver
 from .stokesdensity import StokesDensity
 
 class StratBox():
+    """Shearing box linear modes for the stratified PSI.
+
+    A StratBox instance holds a shearing box of a given metallicity, Stokes
+    density (i.e. dust size distribution), gas viscosity, and a number of
+    dust sizes considered. Linear modes can be calculated and stored in an
+    HDF5 file.
+
+    Attributes:
+        param (dict): dictionary containing box parameters, metallicity,
+            stokes range (minimum and maximum Stokes number), viscous_alpha
+            (gas alpha viscosity), neglect_gas_viscosity (bool whether to
+            neglect gas viscosity in gas momentum equations), n_dust (number
+            of dust species), stokes_density_dict (dictionary containing
+            additional information about the size distribution).
+        direct_solver: Hermite spectral collocation solver to find eigenvalues
+            and eigenvectors.
+        equilibrium: EquilibriumBVP object, containing the equilibrium
+            solution.
+        filename (str): Name of HDF5 file to store eigenmodes. If set to
+            None no output is provided.
+
+    """
     ################
     # Constructors #
     ################
@@ -18,6 +44,25 @@ class StratBox():
                  neglect_gas_viscosity=True,
                  n_dust=1,
                  filename=None):
+        """Setup direct solver, equilibrium and output file.
+
+        Args:
+            metallicity: dust mass fraction in box.
+            stokes_range: minimum and maximum Stokes number.
+            viscous_alpha: gas alpha viscosity.
+            stokes_density_dict (optional): dictionary containing any
+                additional information about the size distribution. Defaults
+                to None, in which case an MRN size distribution is assumed.
+            neglect_gas_viscosity (bool, optional): If True, gas viscosity is
+                neglected in the gas momentum equations, but kept for
+                calculating the level of dust diffusion. Defaults to True.
+            n_dust (int, optional): Number of dust sizes (collocation points
+                in size space). Defaults to 1, the monodisperse limit.
+            filename (str, optional): Name of output HDF5 file. Defaults to
+                None, in which case no output to file is done.
+
+        """
+
         # Dictionary containing parameters
         self.param = {}
 
@@ -30,11 +75,11 @@ class StratBox():
         self.param['n_dust'] = n_dust
 
         # Create direct solver
-        self.di = DirectSolver(interval=[-np.inf, np.inf],
-                               symmetry=None, basis='Hermite')
+        self.direct_solver = DirectSolver(interval=[-np.inf, np.inf],
+                                          symmetry=None, basis='Hermite')
 
         # Solve for background state
-        self.eq = self.solve_background()
+        self.equilibrium = self.solve_background()
 
         # Create or check file
         self.filename = filename
@@ -43,9 +88,16 @@ class StratBox():
 
     @classmethod
     def from_file(cls, filename):
-        hf = h5.File(filename, 'a')
+        """Generate instance from previously saved HDF5 file.
 
-        g_main = hf['main']
+        Args:
+            filename (str): name of HDF5 file.
+
+        """
+
+        h5_file = h5.File(filename, 'a')
+
+        g_main = h5_file['main']
 
         # Need at least these to create class instance
         required_keys = StratBox.required_parameters()
@@ -53,7 +105,7 @@ class StratBox():
         # Check if all necessary parameters are present
         for k in required_keys:
             if k not in g_main.attrs:
-                raise ValueError('{} not present in hdf file'.format(k))
+                raise ValueError(f'{k} not present in hdf file')
 
         # Construct stokes_density_dict
         stokes_density_dict = g_main.attrs['stokes_density_dict']
@@ -66,7 +118,7 @@ class StratBox():
         ngl = g_main.attrs['neglect_gas_viscosity']
         n_dust = g_main.attrs['n_dust']
 
-        hf.close()
+        h5_file.close()
 
         # Create class
         return cls(metallicity,
@@ -79,6 +131,9 @@ class StratBox():
 
     @staticmethod
     def required_parameters():
+        """Return parameters required to setup instance.
+
+        """
         # Return list of required parameters
         return ['metallicity',
                 'stokes_range',
@@ -87,46 +142,68 @@ class StratBox():
                 'n_dust']
 
     def check_main_group(self, filename):
-        hf = h5.File(filename, 'a')
+        """Create valid HDF5 file or check validity if it exists
+
+        A valid HDF5 file contains a main group that has the attributes
+        necessary to create a StratBox instance. This group is created is it
+        does not exist, or checked against the param attribute.
+
+        Args:
+            filename (str): Name of HDF5 file.
+
+        """
+
+        h5_file = h5.File(filename, 'a')
 
         # Create main group and set attributes
-        if "main" not in hf:
-            g_main = hf.create_group('main')
-            for k in self.param.keys():
+        if "main" not in h5_file:
+            g_main = h5_file.create_group('main')
+            for key, item in self.param.items():
                 # HDF does not accept None; convert to string
-                if self.param[k] is not None:
-                    g_main.attrs[k] = self.param[k]
+                if item is not None:
+                    g_main.attrs[key] = item
                 else:
-                    g_main.attrs[k] = 'None'
+                    g_main.attrs[key] = 'None'
         else:
             # Group exists: check all attributes
-            g_main = hf['main']
+            g_main = h5_file['main']
 
-            for k in self.param.keys():
-                if k not in g_main.attrs:
-                    raise ValueError('Missing attribute in hdf file:', k)
-                if np.atleast_1d(g_main.attrs[k])[0] != 'None':
-                    if (g_main.attrs[k] != self.param[k]).any():
-                        raise ValueError('Attr has wrong value in hdf file:', k)
+            for key, item in self.param.items():
+                if key not in g_main.attrs:
+                    raise ValueError('Missing attribute in hdf file:', key)
+                if np.atleast_1d(g_main.attrs[key])[0] != 'None':
+                    if (g_main.attrs[key] != item).any():
+                        raise ValueError('Attr has wrong value in hdf:', key)
                 else:
-                    if self.param[k] is not None:
-                        raise ValueError('Attr has wrong value in hdf file:', k)
+                    if item is not None:
+                        raise ValueError('Attr has wrong value in hdf:', key)
 
             for k in g_main.attrs:
                 if k not in self.param:
                     raise ValueError('Extra attribute in hdf file:', k)
 
-        hf.close()
+        h5_file.close()
 
     ###############################
     # Solve for equilibrium state #
     ###############################
 
     def stokes_density(self):
+        """Create StokesDensity object.
+
+        Create Stokes density object based on the stokes_range parameter and
+        the stokes_density_dict dictionary.
+
+        Returns:
+            StokesDensity object.
+
+        """
+
         # Create StokesDensity
         stokes_range = np.atleast_1d(self.param['stokes_range'])
         if self.param['n_dust'] == 1 and len(stokes_range) > 1:
-            print('Warning: switching to monodisperse StokesDensity because n_dust == 1')
+            print('Warning: switching to monodisperse StokesDensity',
+                  'because n_dust == 1')
             sigma = StokesDensity(self.param['stokes_range'][-1],
                                   self.param['stokes_density_dict'])
         else:
@@ -135,41 +212,77 @@ class StratBox():
 
         return sigma
 
-    def solve_background(self, N_back=1000):
-        eq = EquilibriumBVP(self.stokes_density(),
-                            self.param['n_dust'],
-                            viscous_alpha=self.param['viscous_alpha'],
-                            dust_to_gas_ratio=100*self.param['metallicity'])
-        eq.set_metallicity(self.param['metallicity'])
+    def solve_background(self, background_resolution=1000):
+        """Create equilibrium solution.
+
+        Solve the boundary value problem for the equilibrium horizontal
+        velocities.
+
+        Args:
+            background_resolution (int, optional): Number of collocation
+            points to be used in BVP. Defaults to 1000.
+
+        Returns:
+            Equilibrium object.
+
+        """
+        equilibrium = Equilibrium(self.param['metallicity'],
+                                  self.stokes_density(),
+                                  self.param['n_dust'],
+                                  viscous_alpha=self.param['viscous_alpha'])
+        equilibrium.set_metallicity(self.param['metallicity'])
 
         ngl = self.param['neglect_gas_viscosity']
-        eq.solve(N_back, neglect_gas_viscosity=ngl)
-
-        return eq
+        equilibrium.solve_horizontal_velocities(background_resolution, neglect_gas_viscosity=ngl)
+        return equilibrium
 
     ##########################
     # Solve for linear modes #
     ##########################
 
-    def find_eigenvalues(self, wave_number_x, N, L=1,
-                         sparse_flag=False, sigma=None, n_eig=6,
-                         n_safe_levels=1, use_PETSc=False, label=None):
+    def find_eigenvalues(self, wave_number_x, resolution, scale_factor=1,
+                         sigma=None, n_eig=6):
+        """Solve for linear modes.
+
+        Solve the eigenvalue problem at a specific wave number. By default, a
+        sparse eigensolver is used in shift-invert mode, to find the n_eig
+        nearest eigenvalues around a specified complex number, sigma.
+
+        Args:
+            wave_number_x: Horizontal wave number to consider.
+            resolution: Number of spectral collocation points.
+            scale_factor (optional): Scaling for Hermite functions (see Boyd).
+                Defaults to 1.
+            sigma (optional): Complex number to find eigenvalues around.
+            n_eig (int, optional): number of eigenvalues to try and find.
+                Defaults to 6. Note that the number of values returned may
+                differ, since non-converged eigenvalues are rejected.
+
+        Returns:
+            eigenvalues, eigenvectors, radius. The radius contains the maximum
+            distance between eigenvalues found and sigma.
+
+        """
+
         ngl = self.param['neglect_gas_viscosity']
         n_eq = 4 + 4*self.param['n_dust']
 
         degen = 1
         #if sparse_flag == True:
         #    degen = n_eig
+
+        # Note: last three arguments are fed into matrix calculation
         eig, vec, rad = \
-          self.di.safe_solve(N,
-                             L=L,
-                             n_eq=n_eq,
-                             sigma=sigma, n_eig=n_eig,
-                             degeneracy=degen,
-                             n_safe_levels=n_safe_levels,
-                             kx=wave_number_x,              # kwarg for M
-                             equilibrium=self.eq,           # kwarg for M
-                             neglect_gas_viscosity=ngl)     # kwarg for M
+          self.direct_solver.safe_solve(resolution,
+                                        L=scale_factor,
+                                        n_eq=n_eq,
+                                        sigma=sigma,
+                                        n_eig=n_eig,
+                                        degeneracy=degen,
+                                        n_safe_levels=1,
+                                        kx=wave_number_x,
+                                        equilibrium=self.equilibrium,
+                                        neglect_gas_viscosity=ngl)
 
         # Sort according to imaginary part: fastest growing first
         if len(eig) > 1:
@@ -177,24 +290,36 @@ class StratBox():
             eig = eig[idx]
             vec = vec[idx]
 
-        if self.filename is not None and label is not None:
-            self.add_group_to_file(eig. vec, wave_number_x, N, L, label)
-
         return eig, vec, rad
 
     #####################################
     # Saving/reading modes to/from file #
     #####################################
 
-    def add_group_to_file(self, eig, vec, kx, L, label):
+    def add_group_to_file(self, eig, vec, wave_number_x, scale_factor, label):
+        """Add modes to HDF5 file.
+
+        A group with the name contained in label is created under main/modes
+        in the HDF5 file. Within this group, eigenvalue/eigenvector pairs is
+        stored in groups named 0, 1, etc.
+
+        Args:
+            eig: list of eigenvalues.
+            vec: list of eigenvectors.
+            wave_number_x: horizontal wavenumber for all modes.
+            scale_factor: scale factor (see Boyd) used for all modes.
+            label (str): group name for HDF5 file.
+
+        """
+
         if self.filename is None:
             print('Can not add group to file: no filename specified')
             return
 
-        N = int(len(vec[0,:])/(4 + 4*self.param['n_dust']))
+        resolution = int(len(vec[0,:])/(4 + 4*self.param['n_dust']))
 
-        hf = h5.File(self.filename, 'a')
-        g_main = hf['main']
+        h5_file = h5.File(self.filename, 'a')
+        g_main = h5_file['main']
 
         if 'modes' not in g_main:
             print('Creating modes group')
@@ -207,63 +332,98 @@ class StratBox():
             del g_modes[label]
 
         g_label = g_modes.create_group(label)
-        g_label.attrs['kx'] = kx
-        g_label.attrs['N'] = N
-        g_label.attrs['L'] = L
+        g_label.attrs['kx'] = wave_number_x
+        g_label.attrs['N'] = resolution
+        g_label.attrs['L'] = scale_factor
 
-        for i in range(0, len(eig)):
-            g = g_label.create_group(str(i))
-            g.attrs['eigenvalue'] = eig[i]
+        for i, e_val in enumerate(eig):
+            g_mode = g_label.create_group(str(i))
+            g_mode.attrs['eigenvalue'] = e_val
 
-            print('Saving eigenvalue {} under '.format(eig[i]), str(i))
+            print(f'Saving eigenvalue {e_val} under ', str(i))
 
-            g.create_dataset('eigenvector', data=vec[i])
+            g_mode.create_dataset('eigenvector', data=vec[i])
 
-        hf.close()
+        h5_file.close()
 
     def get_modes_in_label(self, label):
-        hf = h5.File(self.filename, 'r')
+        """Return all modes contained under label in HDF5 file.
 
-        g = hf['main/modes/' + label]
+        Args:
+            label (str): label to search under.
+
+        Returns:
+            list of mode names.
+
+        """
+
+        h5_file = h5.File(self.filename, 'r')
+
+        g_mode = h5_file['main/modes/' + label]
 
         ret = []
-        for i in g.keys():
+        for i in g_mode.keys():
             ret.extend(i)
 
-        hf.close()
+        h5_file.close()
 
         return ret
 
     def read_mode_from_file(self, label):
-        hf = h5.File(self.filename, 'r')
+        """Read mode from HDF5 file.
 
-        g = hf['main/modes/' + label]
-        eigenvalue = g.attrs['eigenvalue']
+        Args:
+            label (str): mode name in HDF5 file, should live in main/modes.
 
-        vec = g.get('eigenvector')[()]
-        z = None
-        if 'z' in g:
-            z = g.get('z')[()]
-        u = None
-        if 'u' in g:
-            u = g.get('u')[()]
-        du = None
-        if 'du' in g:
-            du = g.get('du')[()]
+        Returns:
+            horizontal wave number, eigenvalue, eigenvector, z, space
+            dependence of mode, space dependence of mode derivative. The
+            latter three are only returned if present in the HDF5 file.
 
-        kx = g.parent.attrs['kx']
+        """
 
-        hf.close()
+        h5_file = h5.File(self.filename, 'r')
 
-        return kx, eigenvalue, vec, z, u, du
+        g_mode = h5_file['main/modes/' + label]
+        eigenvalue = g_mode.attrs['eigenvalue']
 
-    def compute_z(self, label, z):
+        vec = g_mode.get('eigenvector')[()]
+        vertical_coordinate = None
+        if 'z' in g_mode:
+            vertical_coordinate = g_mode.get('z')[()]
+        state = None
+        if 'u' in g_mode:
+            state = g_mode.get('u')[()]
+        dstate = None
+        if 'du' in g_mode:
+            dstate = g_mode.get('du')[()]
+
+        wave_number_x = g_mode.parent.attrs['kx']
+
+        h5_file.close()
+
+        return wave_number_x, eigenvalue, vec, \
+          vertical_coordinate, state, dstate
+
+    def compute_z(self, label, vertical_coordinate):
+        """Compute spatial dependence of modes in HDF5 file under label.
+
+        Reads eigenvector from HDF5 file, computes the spatial (z-)dependence
+        of the modes and their derivatives, and puts these in the HDF5 file
+        in the same group.
+
+        Args:
+            label (str): label in HDF5 file.
+            vertical_coordinate (ndarray): array of z values.
+
+        """
+
         if self.filename is None:
             print('Can not compute z: no filename specified')
             return
 
-        hf = h5.File(self.filename, 'a')
-        g_main = hf['main']
+        h5_file = h5.File(self.filename, 'a')
+        g_main = h5_file['main']
 
         if 'modes' not in g_main:
             print('Error: modes group does not exist')
@@ -273,79 +433,108 @@ class StratBox():
             print('Error: group does not exist:', label)
         g_label = g_modes[label]
 
-        self.di.set_resolution(g_label.attrs['N'],
-                               L=g_label.attrs['L'],
-                               n_eq=4 + 4*self.param['n_dust'])
+        self.direct_solver.set_resolution(g_label.attrs['N'],
+                                          L=g_label.attrs['L'],
+                                          n_eq=4 + 4*self.param['n_dust'])
 
         for k in g_label.keys():
-            g = g_label[k]
+            g_mode = g_label[k]
 
-            if 'z' in g:
+            if 'z' in g_mode:
                 print('Warning: replacing z')
-                del g['z']
-            if 'u' in g:
+                del g_mode['z']
+            if 'u' in g_mode:
                 print('Warning: replacing u')
-                del g['u']
-            if 'du' in g:
+                del g_mode['u']
+            if 'du' in g_mode:
                 print('Warning: replacing du')
-                del g['du']
+                del g_mode['du']
 
-            vec = g.get('eigenvector')[()]
+            vec = g_mode.get('eigenvector')[()]
 
-            u, du = self.evaluate_velocity_form(z, vec)
+            state, dstate = \
+              self.evaluate_velocity_form(vertical_coordinate, vec)
 
-            g.create_dataset('z', data=z)
-            g.create_dataset('u', data=u)
-            g.create_dataset('du', data=du)
+            g_mode.create_dataset('z', data=vertical_coordinate)
+            g_mode.create_dataset('u', data=state)
+            g_mode.create_dataset('du', data=dstate)
 
-        hf.close()
+        h5_file.close()
 
-    def evaluate_velocity_form(self, z, vec):
+    def evaluate_velocity_form(self, vertical_coordinate, vec):
+        """Compute spatial dependence in velocity form.
+
+        The eigenvalue problem is solved in momentum form, but often it is
+        desirable to work with velocities rather than momenta. The spatial
+        dependence of the mode is evaluated and converted to velocity form.
+
+        Args:
+            vertical_coordinate (ndarray): array of z values.
+            vec: eigenvector.
+
+        Returns:
+            mode spatial dependence, mode z-derivative.
+
+        """
+
         n_eq = 4 + 4*self.param['n_dust']
 
-        u = self.di.evaluate(z, vec, n_eq=n_eq)
-        du = self.di.evaluate(z, vec, n_eq=n_eq, k=1)
+        state = self.direct_solver.evaluate(vertical_coordinate, vec, n_eq=n_eq)
+        dstate = self.direct_solver.evaluate(vertical_coordinate,
+                                             vec, n_eq=n_eq, k=1)
 
-        rhog0 = self.eq.gasdens(z)
-        dlogrhogdz = self.eq.dlogrhogdz(z)
+        rhog0 = self.equilibrium.gasdens(vertical_coordinate)
+        dlogrhogdz = self.equilibrium.dlogrhogdz(vertical_coordinate)
 
-        du[0,:] = (du[0,:] - u[0,:]*dlogrhogdz)/rhog0
-        du[1,:] = (du[1,:] - u[1,:]*dlogrhogdz)/rhog0
-        du[2,:] = (du[2,:] - u[2,:]*dlogrhogdz)/rhog0
-        du[3,:] = (du[3,:] - u[3,:]*dlogrhogdz)/rhog0
-        for n in range(0, self.param['n_dust']):
-            rhod0 = self.eq.sigma(z)[n,:]
-            dlogrhoddz = self.eq.dlogsigmadz(z)[n,:]
+        dstate[0,:] = (dstate[0,:] - state[0,:]*dlogrhogdz)/rhog0
+        dstate[1,:] = (dstate[1,:] - state[1,:]*dlogrhogdz)/rhog0
+        dstate[2,:] = (dstate[2,:] - state[2,:]*dlogrhogdz)/rhog0
+        dstate[3,:] = (dstate[3,:] - state[3,:]*dlogrhogdz)/rhog0
+        for i in range(0, self.param['n_dust']):
+            rhod0 = self.equilibrium.sigma(vertical_coordinate)[i,:]
+            dlogrhoddz = self.equilibrium.dlogsigmadz(vertical_coordinate)[i,:]
 
-            du[4+4*n,:] = (du[4+4*n,:] - u[4+4*n,:]*dlogrhoddz)/rhod0
-            du[5+4*n,:] = (du[5+4*n,:] - u[5+4*n,:]*dlogrhoddz)/rhod0
-            du[6+4*n,:] = (du[6+4*n,:] - u[6+4*n,:]*dlogrhoddz)/rhod0
-            du[7+4*n,:] = (du[7+4*n,:] - u[7+4*n,:]*dlogrhoddz)/rhod0
+            dstate[4+4*i,:] = (dstate[4+4*i,:]- state[4+4*i,:]*dlogrhoddz)/rhod0
+            dstate[5+4*i,:] = (dstate[5+4*i,:]- state[5+4*i,:]*dlogrhoddz)/rhod0
+            dstate[6+4*i,:] = (dstate[6+4*i,:]- state[6+4*i,:]*dlogrhoddz)/rhod0
+            dstate[7+4*i,:] = (dstate[7+4*i,:]- state[7+4*i,:]*dlogrhoddz)/rhod0
 
-        u[0,:] = u[0,:]/rhog0
-        u[1,:] = u[1,:]/rhog0
-        u[2,:] = u[2,:]/rhog0
-        u[3,:] = u[3,:]/rhog0
-        for n in range(0, self.param['n_dust']):
-            rhod0 = self.eq.sigma(z)[n,:]
+        state[0,:] = state[0,:]/rhog0
+        state[1,:] = state[1,:]/rhog0
+        state[2,:] = state[2,:]/rhog0
+        state[3,:] = state[3,:]/rhog0
+        for i in range(0, self.param['n_dust']):
+            rhod0 = self.equilibrium.sigma(vertical_coordinate)[i,:]
 
-            u[4+4*n,:] = u[4+4*n,:]/rhod0
-            u[5+4*n,:] = u[5+4*n,:]/rhod0
-            u[6+4*n,:] = u[6+4*n,:]/rhod0
-            u[7+4*n,:] = u[7+4*n,:]/rhod0
+            state[4+4*i,:] = state[4+4*i,:]/rhod0
+            state[5+4*i,:] = state[5+4*i,:]/rhod0
+            state[6+4*i,:] = state[6+4*i,:]/rhod0
+            state[7+4*i,:] = state[7+4*i,:]/rhod0
 
-        return u, du
+        return state, dstate
 
-    def get_total_dust_density(self, z, u):
-        wt = self.eq.tau*self.eq.weights
+    def get_total_dust_density(self, vertical_coordinate, state):
+        """Compute total dust density.
+
+        Compute the perturbation in total dust density.
+
+        Args:
+            vertical_coordinate (ndarray): array of z values.
+            state: spatial dependence of perturbations.
+
+        Returns:
+            total dust density.
+
+        """
+
+        w_tau = self.equilibrium.tau*self.equilibrium.weights
+        sigma = self.equilibrium.sigma(vertical_coordinate)
 
         # Calculate total dust density perturbation
-        dust_rho = self.eq.sigma(z)[0,:]*u[4,:]*wt[0]
-        dust_rho0 = self.eq.sigma(z)[0,:]*wt[0]
-        for i in range(1, len(self.eq.tau)):
-            dust_rho = dust_rho + \
-              self.eq.sigma(z)[i,:]*u[4*(i+1),:]*wt[i]
-            dust_rho0 = dust_rho0 + \
-              self.eq.sigma(z)[i,:]*wt[i]
+        dust_rho = sigma[0,:]*state[4,:]*w_tau[0]
+        dust_rho0 = sigma[0,:]*w_tau[0]
+        for i in range(1, len(self.equilibrium.tau)):
+            dust_rho = dust_rho + sigma[i,:]*state[4*(i+1),:]*w_tau[i]
+            dust_rho0 = dust_rho0 + sigma[i,:]*w_tau[i]
 
         return dust_rho/dust_rho0

@@ -10,10 +10,12 @@ from .strat_mode import StratBox
 
 def plot_equilibrium(sb):
     zmax = \
-      0.05*np.sqrt(sb.param['viscous_alpha']/1.0e-6)*np.sqrt(0.01/sb.eq.tau[-1])
+      0.05*np.sqrt(sb.param['viscous_alpha']/1.0e-6)*\
+        np.sqrt(0.01/sb.equilibrium.stokes_numbers[-1])
     z = np.linspace(-zmax, zmax, 1000)
 
-    rhog, sigma, mu, dust_rho, vx, vy, ux, uy, uz = sb.eq.get_state(z)
+    rhog, sigma, mu, dust_rho, vx, vy, vz, ux, uy, uz = \
+        sb.equilibrium.get_state(z)
 
     fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, sharex=True)
 
@@ -54,18 +56,18 @@ def plot_eigenmode(sb, label):  #eig, u, z, n_dust=1):
     plt.suptitle('Eigenvalue: '+ str(eig))
 
     # Normalize by largest dust density perturbation
-    norm_fac = norm_factor_dust_density(u, sb.eq.sigma(z),
-                                        sb.eq.tau, sb.eq.weights)
+    norm_fac = norm_factor_dust_density(u, sb.equilibrium.eq_sigma.evaluate(z),
+                                        sb.equilibrium.stokes_numbers, sb.equilibrium.weights)
     u = u/norm_fac
 
     # Calculate total dust density perturbation
-    dust_rho = sb.eq.sigma(z)[0,:]*u[4,:]*sb.eq.tau[0]*sb.eq.weights[0]
-    dust_rho0 = sb.eq.sigma(z)[0,:]*sb.eq.tau[0]*sb.eq.weights[0]
-    for i in range(1, len(sb.eq.tau)):
+    dust_rho = sb.equilibrium.eq_sigma.evaluate(z)[0,:]*u[4,:]*sb.equilibrium.stokes_numbers[0]*sb.equilibrium.weights[0]
+    dust_rho0 = sb.equilibrium.eq_sigma.evaluate(z)[0,:]*sb.equilibrium.stokes_numbers[0]*sb.equilibrium.weights[0]
+    for i in range(1, len(sb.equilibrium.stokes_numbers)):
         dust_rho = dust_rho + \
-          sb.eq.sigma(z)[i,:]*u[4*(i+1),:]*sb.eq.tau[i]*sb.eq.weights[i]
+          sb.equilibrium.eq_sigma.evaluate(z)[i,:]*u[4*(i+1),:]*sb.equilibrium.stokes_numbers[i]*sb.equilibrium.weights[i]
         dust_rho0 = dust_rho0 + \
-          sb.eq.sigma(z)[i,:]*sb.eq.tau[i]*sb.eq.weights[i]
+          sb.equilibrium.eq_sigma.evaluate(z)[i,:]*sb.equilibrium.stokes_numbers[i]*sb.equilibrium.weights[i]
     dust_rho = dust_rho/dust_rho0
 
     axes[0].set_ylabel(r'$\sigma$')
@@ -122,7 +124,7 @@ def plot_energy_decomposition(sb, label): #eig, vec, kx, u, du, z):
     # omega = i*s + w
     fig, ax = plt.subplots(1, 1)
 
-    U1, U2, U3, U4, U5, Utot = energy_decomposition(z, sb, eig, vec, kx, u, du)
+    U1, U2, U3, U4, U5, Utot = energy_decomposition(z, sb, eig, kx, u, du)
 
     plt.suptitle('Eigenvalue: '+ str(eig))
 
@@ -147,8 +149,8 @@ def plot_contour_dust_density(sb, eig, vec, z):
     #u = sb.evaluate_velocity_form(z, vec)
 
     # Normalize by largest dust density perturbation
-    norm_fac = norm_factor_dust_density(u, sb.eq.sigma(z),
-                                        sb.eq.tau, sb.eq.weights)
+    norm_fac = norm_factor_dust_density(u, sb.equilibrium.sigma(z),
+                                        sb.equilibrium.stokes_numbers, sb.equilibrium.weights)
     u = u/norm_fac
 
     sigma = np.ndarray((sb.n_dust, 1000), dtype=np.cdouble)
@@ -165,18 +167,18 @@ def plot_contour_dust_density(sb, eig, vec, z):
     axes[0].set_ylabel(r'$\mathrm{St}$')
     axes[1].set_ylabel(r'$\mathrm{St}$')
 
-    axes[0].contourf(z, sb.eq.tau, np.real(sigma))
-    axes[1].contourf(z, sb.eq.tau, np.imag(sigma))
+    axes[0].contourf(z, sb.equilibrium.stokes_numbers, np.real(sigma))
+    axes[1].contourf(z, sb.equilibrium.stokes_numbers, np.imag(sigma))
 
     return fig
 
 def plot_stokes_dist(eq):
-    tau = eq.tau
-    sigma = eq.stokes_density.sigma(tau)
+    stokes_numbers = eq.stokes_numbers
+    sigma = eq.stokes_density.sigma(stokes_numbers)
 
     fig, ax = plt.subplots(1, 1)
 
-    plt.plot(tau, sigma)
+    plt.plot(stokes_numbers, sigma)
 
     plt.xlabel(r'$\mathrm{St}$')
     plt.ylabel(r'$\sigma_0$')
@@ -195,7 +197,7 @@ def plot_pdf(filename, label):
     plt.close(fig)
 
     if sb.param['n_dust'] > 1:
-        fig = plot_stokes_dist(sb.eq)
+        fig = plot_stokes_dist(sb.equilibrium)
         pp.savefig(fig)
         plt.close(fig)
 

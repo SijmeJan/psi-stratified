@@ -1,57 +1,57 @@
+# -*- coding: utf-8 -*-
+"""Module dealing with eigenvalue finder
+"""
+
 import numpy as np
-import h5py as h5
 
-def unique_within_tol_complex(a, tol=1e-12):
+def unique_within_tol_complex(vec, tol=1e-12):
     """Brute force finding unique complex values"""
-    if a.size == 0:
-        return a
+    if vec.size == 0:
+        return vec
 
-    sel = np.ones(len(a), dtype=bool)
+    sel = np.ones(len(vec), dtype=bool)
 
-    for i in range(0, len(a)-1):
-        dist = np.abs(a[i+1:] - a[i]).tolist()
+    for i in range(0, len(vec)-1):
+        dist = np.abs(vec[i+1:] - vec[i]).tolist()
         if np.min(dist) < tol:
             sel[i] = False
 
-    return a[sel], sel
+    return vec[sel], sel
 
 class ModeFinder():
+    """Class for finding modes in regions of parameter space
+
+    Args:
+        strat_box: StratBox object
+    """
     def __init__(self, strat_box):
-        self.sb = strat_box
+        self.sbx = strat_box
 
-    def find_optimal_L(self, wave_number_x, N, nL=10):
-        L = np.logspace(-3, 0, nL)
-        n_found = 0*L
+    def find_optimal_scale(self, wave_number_x, n_coll, n_l=10):
+        """Find optimal scaling factor"""
+        scale_l = np.logspace(-3, 0, n_l)
+        n_found = 0*scale_l
 
-        for i in range(0, nL):
-            self.sb.find_eigenvalues(wave_number_x=wave_number_x,
-                                     N=N,
-                                     L=L[i],
-                                     #n_dust=self.sb.param['n_dust'],
-                                     sparse_flag=True,
-                                     n_safe_levels=2,
-                                     use_PETSc=True,
-                                     sigma=0 + 0.001j,
-                                     n_eig=-1)
-            n_found[i] = len(self.sb.eig)
-            print(i, L[i], n_found[i])
+        for i in range(0, n_l):
+            self.sbx.find_eigenvalues(wave_number_x=wave_number_x,
+                                      N=n_coll,
+                                      L=scale_l[i],
+                                      sparse_flag=True,
+                                      n_safe_levels=2,
+                                      use_PETSc=True,
+                                      sigma=0 + 0.001j,
+                                      n_eig=-1)
+            n_found[i] = len(self.sbx.eig)
+            print(i, scale_l[i], n_found[i])
 
-        return L[np.argmax(n_found)]
-
-    def find_all(self, wave_number):
-        kx = wave_number
-
-        N = 50
-        L = 1.0
-
-        # Go through range of L to find best value
+        return scale_l[np.argmax(n_found)]
 
     def find_growing_at_real_part(self, real_part,
                                   imag_range,
-                                  wave_number_x, N, L,
+                                  wave_number_x, n_coll, scale_l,
                                   n_eig=10,
                                   flip_real_imag_flag=False):
-        '''Search around given real part for growing modes.'''
+        """Search around given real part for growing modes."""
         imag_part = imag_range[0]
 
         e_val = []
@@ -65,14 +65,13 @@ class ModeFinder():
             sigma = real_part + 1j*imag_part
 
             # Flip if tracking real line
-            if flip_real_imag_flag == True:
+            if flip_real_imag_flag:
                 sigma = imag_part + 1j*real_part
 
             eig, vec, rad = \
-              self.sb.find_eigenvalues(wave_number_x=wave_number_x,
-                                       N=N,
-                                       L=L,
-                                       n_safe_levels=1,
+              self.sbx.find_eigenvalues(wave_number_x=wave_number_x,
+                                       resolution=n_coll,
+                                       scale_factor=scale_l,
                                        sigma=sigma,
                                        n_eig=n_eig)
 
@@ -80,7 +79,7 @@ class ModeFinder():
             radii.append(rad)
 
             print(imag_part, rad, len(e_val), flush=True)
-            # sb.rad: maximum distance between sigma and any eigenvalue found
+            # sbx.rad: maximum distance between sigma and any eigenvalue found
             imag_part = imag_part + rad
 
             if len(eig) > 0:
