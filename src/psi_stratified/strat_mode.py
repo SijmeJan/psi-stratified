@@ -8,6 +8,7 @@ import h5py as h5
 from .equilibrium import Equilibrium
 from .direct import DirectSolver
 from .stokesdensity import StokesDensity
+from .sbox_param import ShearingBoxParam
 
 class StratBox():
     """Shearing box linear modes for the stratified PSI.
@@ -36,43 +37,29 @@ class StratBox():
     # Constructors #
     ################
 
-    def __init__(self,
-                 metallicity,
-                 stokes_range,
-                 viscous_alpha,
-                 stokes_density_dict=None,
-                 neglect_gas_viscosity=True,
-                 n_dust=1,
-                 filename=None):
+    def __init__(self, sbox_param, filename=None):
         """Setup direct solver, equilibrium and output file.
 
         Args:
-            metallicity: dust mass fraction in box.
-            stokes_range: minimum and maximum Stokes number.
-            viscous_alpha: gas alpha viscosity.
-            stokes_density_dict (optional): dictionary containing any
-                additional information about the size distribution. Defaults
-                to None, in which case an MRN size distribution is assumed.
-            neglect_gas_viscosity (bool, optional): If True, gas viscosity is
-                neglected in the gas momentum equations, but kept for
-                calculating the level of dust diffusion. Defaults to True.
-            n_dust (int, optional): Number of dust sizes (collocation points
-                in size space). Defaults to 1, the monodisperse limit.
+            sbox_param: ShearingBoxParam object
             filename (str, optional): Name of output HDF5 file. Defaults to
                 None, in which case no output to file is done.
 
         """
 
+        sbox_param.check()
+        self.param = sbox_param.param
+
         # Dictionary containing parameters
-        self.param = {}
+        #self.param = {}
 
         # Physical setup dictionary
-        self.param['metallicity'] = metallicity
-        self.param['stokes_range'] = stokes_range
-        self.param['viscous_alpha'] = viscous_alpha
-        self.param['stokes_density_dict'] = stokes_density_dict
-        self.param['neglect_gas_viscosity'] = bool(neglect_gas_viscosity)
-        self.param['n_dust'] = n_dust
+        #self.param['metallicity'] = metallicity
+        #self.param['stokes_range'] = stokes_range
+        #self.param['viscous_alpha'] = viscous_alpha
+        #self.param['stokes_density_dict'] = stokes_density_dict
+        #self.param['neglect_gas_viscosity'] = bool(neglect_gas_viscosity)
+        #self.param['n_dust'] = n_dust
 
         # Create direct solver
         self.direct_solver = DirectSolver(interval=[-np.inf, np.inf],
@@ -112,22 +99,24 @@ class StratBox():
         if stokes_density_dict == 'None':
             stokes_density_dict = None
 
-        metallicity = g_main.attrs['metallicity']
-        stokes_range = g_main.attrs['stokes_range']
-        viscous_alpha = g_main.attrs['viscous_alpha']
-        ngl = g_main.attrs['neglect_gas_viscosity']
-        n_dust = g_main.attrs['n_dust']
+        #metallicity = g_main.attrs['metallicity']
+        #stokes_range = g_main.attrs['stokes_range']
+        #viscous_alpha = g_main.attrs['viscous_alpha']
+        #ngl = g_main.attrs['neglect_gas_viscosity']
+        #n_dust = g_main.attrs['n_dust']
+
+        sbox = ShearingBoxParam()
+        sbox.param['metallicity'] = g_main.attrs['metallicity']
+        sbox.param['stokes_range'] = g_main.attrs['stokes_range']
+        sbox.param['viscous_alpha'] = g_main.attrs['viscous_alpha']
+        sbox.param['stokes_density_dict'] = stokes_density_dict
+        sbox.param['neglect_gas_viscosity'] = g_main.attrs['neglect_gas_viscosity']
+        sbox.param['n_dust'] = g_main.attrs['n_dust']
 
         h5_file.close()
 
         # Create class
-        return cls(metallicity,
-                   stokes_range,
-                   viscous_alpha,
-                   stokes_density_dict=stokes_density_dict,
-                   neglect_gas_viscosity=ngl,
-                   n_dust=n_dust,
-                   filename=filename)
+        return cls(sbox, filename=filename)
 
     @staticmethod
     def required_parameters():
@@ -240,8 +229,7 @@ class StratBox():
     # Solve for linear modes #
     ##########################
 
-    def find_eigenvalues(self, wave_number_x, resolution, scale_factor=1,
-                         sigma=None, n_eig=6):
+    def find_eigenvalues(self, mode, sigma=None, n_eig=6):
         """Solve for linear modes.
 
         Solve the eigenvalue problem at a specific wave number. By default, a
@@ -249,10 +237,7 @@ class StratBox():
         nearest eigenvalues around a specified complex number, sigma.
 
         Args:
-            wave_number_x: Horizontal wave number to consider.
-            resolution: Number of spectral collocation points.
-            scale_factor (optional): Scaling for Hermite functions (see Boyd).
-                Defaults to 1.
+            mode: ModeParam object containing wave_number_x, n_coll and scale_l
             sigma (optional): Complex number to find eigenvalues around.
             n_eig (int, optional): number of eigenvalues to try and find.
                 Defaults to 6. Note that the number of values returned may
@@ -273,14 +258,14 @@ class StratBox():
 
         # Note: last three arguments are fed into matrix calculation
         eig, vec, rad = \
-          self.direct_solver.safe_solve(resolution,
-                                        L=scale_factor,
+          self.direct_solver.safe_solve(mode.param['n_coll'],
+                                        L=mode.param['scale_l'],
                                         n_eq=n_eq,
                                         sigma=sigma,
                                         n_eig=n_eig,
                                         degeneracy=degen,
                                         n_safe_levels=1,
-                                        kx=wave_number_x,
+                                        kx=mode.param['wave_number_x'],
                                         equilibrium=self.equilibrium,
                                         neglect_gas_viscosity=ngl)
 
@@ -296,7 +281,7 @@ class StratBox():
     # Saving/reading modes to/from file #
     #####################################
 
-    def add_group_to_file(self, eig, vec, wave_number_x, scale_factor, label):
+    def add_group_to_file(self, eig, vec, mode_param, label):
         """Add modes to HDF5 file.
 
         A group with the name contained in label is created under main/modes
@@ -306,8 +291,7 @@ class StratBox():
         Args:
             eig: list of eigenvalues.
             vec: list of eigenvectors.
-            wave_number_x: horizontal wavenumber for all modes.
-            scale_factor: scale factor (see Boyd) used for all modes.
+            mode_param: ModeParam object, containing wave_number_x, n_coll and scale_l
             label (str): group name for HDF5 file.
 
         """
@@ -316,7 +300,7 @@ class StratBox():
             print('Can not add group to file: no filename specified')
             return
 
-        resolution = int(len(vec[0,:])/(4 + 4*self.param['n_dust']))
+        #resolution = int(len(vec[0,:])/(4 + 4*self.param['n_dust']))
 
         h5_file = h5.File(self.filename, 'a')
         g_main = h5_file['main']
@@ -332,9 +316,9 @@ class StratBox():
             del g_modes[label]
 
         g_label = g_modes.create_group(label)
-        g_label.attrs['kx'] = wave_number_x
-        g_label.attrs['N'] = resolution
-        g_label.attrs['L'] = scale_factor
+        g_label.attrs['kx'] = mode_param.param['wave_number_x']
+        g_label.attrs['N'] = mode_param.param['n_coll']
+        g_label.attrs['L'] = mode_param.param['scale_l']
 
         for i, e_val in enumerate(eig):
             g_mode = g_label.create_group(str(i))
@@ -483,16 +467,16 @@ class StratBox():
         dstate = self.direct_solver.evaluate(vertical_coordinate,
                                              vec, n_eq=n_eq, k=1)
 
-        rhog0 = self.equilibrium.gasdens(vertical_coordinate)
-        dlogrhogdz = self.equilibrium.dlogrhogdz(vertical_coordinate)
+        rhog0 = self.equilibrium.eq_rhog.evaluate(vertical_coordinate)
+        dlogrhogdz = self.equilibrium.eq_rhog.log_deriv(vertical_coordinate)
 
         dstate[0,:] = (dstate[0,:] - state[0,:]*dlogrhogdz)/rhog0
         dstate[1,:] = (dstate[1,:] - state[1,:]*dlogrhogdz)/rhog0
         dstate[2,:] = (dstate[2,:] - state[2,:]*dlogrhogdz)/rhog0
         dstate[3,:] = (dstate[3,:] - state[3,:]*dlogrhogdz)/rhog0
         for i in range(0, self.param['n_dust']):
-            rhod0 = self.equilibrium.sigma(vertical_coordinate)[i,:]
-            dlogrhoddz = self.equilibrium.dlogsigmadz(vertical_coordinate)[i,:]
+            rhod0 = self.equilibrium.eq_sigma.evaluate(vertical_coordinate)[i,:]
+            dlogrhoddz = self.equilibrium.eq_sigma.log_deriv(vertical_coordinate)[i,:]
 
             dstate[4+4*i,:] = (dstate[4+4*i,:]- state[4+4*i,:]*dlogrhoddz)/rhod0
             dstate[5+4*i,:] = (dstate[5+4*i,:]- state[5+4*i,:]*dlogrhoddz)/rhod0
@@ -504,7 +488,7 @@ class StratBox():
         state[2,:] = state[2,:]/rhog0
         state[3,:] = state[3,:]/rhog0
         for i in range(0, self.param['n_dust']):
-            rhod0 = self.equilibrium.sigma(vertical_coordinate)[i,:]
+            rhod0 = self.equilibrium.eq_sigma.evaluate(vertical_coordinate)[i,:]
 
             state[4+4*i,:] = state[4+4*i,:]/rhod0
             state[5+4*i,:] = state[5+4*i,:]/rhod0
@@ -527,13 +511,13 @@ class StratBox():
 
         """
 
-        w_tau = self.equilibrium.tau*self.equilibrium.weights
-        sigma = self.equilibrium.sigma(vertical_coordinate)
+        w_tau = self.equilibrium.stokes_numbers*self.equilibrium.weights
+        sigma = self.equilibrium.eq_sigma.evaluate(vertical_coordinate)
 
         # Calculate total dust density perturbation
         dust_rho = sigma[0,:]*state[4,:]*w_tau[0]
         dust_rho0 = sigma[0,:]*w_tau[0]
-        for i in range(1, len(self.equilibrium.tau)):
+        for i in range(1, len(self.equilibrium.stokes_numbers)):
             dust_rho = dust_rho + sigma[i,:]*state[4*(i+1),:]*w_tau[i]
             dust_rho0 = dust_rho0 + sigma[i,:]*w_tau[i]
 

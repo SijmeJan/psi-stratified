@@ -171,7 +171,7 @@ class TrackerFile():
 
         h5_file.close()
 
-        self.save(x_merged, y_merged, group_merged)
+        self.save(x_merged, y_merged, n_coll_merged, scale_l_merged, group_merged)
 
     def list_groups(self):
         """List all groups in HDF5 file
@@ -261,90 +261,65 @@ class ModeTracker():
         if filename is not None:
             self.t_file = TrackerFile(filename)
 
-    def safe_step(self, sigma, maxn_coll=600):
+    def safe_step(self, sigma, mode, maxn_coll=600):
         """Find eigenvalue close to sigma
 
         Args:
             sigma: guessed eigenvalue
+            mode: ModeParam object
             maxn_coll: maximum collocation points to consider
 
         Returns:
             eigenvalue, number of collocation points used, scale factor used
         """
-        #print('mt: finding eigenvalues at n_coll = ', self.sbx.n_coll)
-        self.sbx.find_eigenvalues(wave_number_x=self.sbx.kx,
-                                 n_coll=self.sbx.n_coll,
-                                 scale_l=self.sbx.scale_l,
-                                 n_dust=self.sbx.n_dust,
-                                 sparse_flag=True,
-                                 use_PETSc=True,
-                                 sigma=sigma,
-                                 n_eig=1)
 
-        original_scale_l = self.sbx.scale_l
+        # Try at original mode parameters
+        eig, vec, radii = \
+            self.sbx.find_eigenvalues(mode, sigma=sigma, n_eig=1)
 
-        if len(np.atleast_1d(self.sbx.eig)) == 0:
-            #print('mt: finding eigenvalues at scale_l = ', self.sbx.scale_l/1.5)
-            self.sbx.find_eigenvalues(wave_number_x=self.sbx.kx,
-                                     n_coll=self.sbx.n_coll,
-                                     scale_l=self.sbx.scale_l/1.5,
-                                     n_dust=self.sbx.n_dust,
-                                     sparse_flag=True,
-                                     use_PETSc=True,
-                                     sigma=sigma,
-                                     n_eig=1)
+        original_scale_l = mode.param['scale_l']
 
-            if len(np.atleast_1d(self.sbx.eig)) == 0:
+        if len(np.atleast_1d(eig)) == 0:
+            # Try at reduced L
+            mode.param['scale_l'] /= 1.5
+            eig, vec, radii = \
+                self.sbx.find_eigenvalues(mode, sigma=sigma, n_eig=1)
+
+            if len(np.atleast_1d(eig)) == 0:
                 # Lowering L did not work; try increasing L
-                #print('mt: finding eigenvalues at scale_l = ', self.sbx.scale_l*1.5*1.5)
-                self.sbx.find_eigenvalues(wave_number_x=self.sbx.kx,
-                                         n_coll=self.sbx.n_coll,
-                                         scale_l=self.sbx.scale_l*1.5*1.5,
-                                         n_dust=self.sbx.n_dust,
-                                         sparse_flag=True,
-                                         use_PETSc=True,
-                                         sigma=sigma,
-                                         n_eig=1)
+                mode.param['scale_l'] *= 1.5*1.5
+                eig, vec, radii = \
+                    self.sbx.find_eigenvalues(mode, sigma=sigma, n_eig=1)
 
-            if len(np.atleast_1d(self.sbx.eig)) == 0:
+            if len(np.atleast_1d(eig)) == 0:
                 # Varying L did not help, restore original
-                self.sbx.scale_l = original_scale_l
+                mode.param['scale_l'] = original_scale_l
 
                 # Try higher resolution
-                higher_n_coll = self.sbx.n_coll + 50
-                while (len(np.atleast_1d(self.sbx.eig))==0 and higher_n_coll <= maxn_coll):
-                    #print('mt: finding eigenvalues at n_coll = ', higher_n_coll)
-                    self.sbx.find_eigenvalues(wave_number_x=self.sbx.kx,
-                                             n_coll=higher_n_coll,
-                                             scale_l=self.sbx.scale_l,
-                                             n_dust=self.sbx.n_dust,
-                                             sparse_flag=True,
-                                             use_PETSc=True,
-                                             sigma=sigma,
-                                             n_eig=1)
-                    higher_n_coll = self.sbx.n_coll + 50
+                mode.param['n_coll'] += 50
+                while (len(np.atleast_1d(eig))==0 and mode.param['n_coll'] <= maxn_coll):
+                    eig, vec, radii = \
+                        self.sbx.find_eigenvalues(mode, sigma=sigma, n_eig=1)
+                    mode.param['n_coll'] += 50
 
-                if len(np.atleast_1d(self.sbx.eig)) == 0:
+                if len(np.atleast_1d(eig)) == 0:
+                    mode.param['n_coll'] = maxn_coll
                     print('Forcing closest eigenvalue at highest res')
-                    self.sbx.eig = self.sbx.di.eval_hires
-
-            used_n_coll = self.sbx.n_coll
-            used_scale_l = self.sbx.scale_l
+                    eig = self.sbx.di.eval_hires
         else:
-            used_n_coll = self.sbx.n_coll
-            used_scale_l = self.sbx.scale_l
-
-            if self.sbx.n_coll > 50:
-                self.sbx.n_coll = self.sbx.n_coll - 50
+            # Reduce resolution
+            if mode.param['n_coll'] > 50:
+                mode.param['n_coll'] -= 50
 
         # Select closest to sigma
-        e_val = np.atleast_1d(self.sbx.eig)
+        e_val = np.atleast_1d(eig)
         idx_min = np.argmin(np.abs(e_val - sigma))
 
-        return self.sbx.eig[idx_min], used_n_coll, used_scale_l
+        return eig[idx_min], mode
 
-    def adjust_sbox(self, x_value):
+    def adjust_sbox(self, x_value, mode):
         """Change the required parameter in the ShearingBox"""
+        return mode
 
     def get_save_xvalue(self, x_value):
         """Compute parameter value to store in file
@@ -355,12 +330,13 @@ class ModeTracker():
         """
         return x_value
 
-    def track(self, x_values, starting_ev, maxn_coll=600, label='main'):
+    def track(self, x_values, starting_ev, mode, maxn_coll=600, label='main'):
         """Track a mode across parameter space
 
         Args:
             x_values: parameter range at which to follow mode
             starting_ev: eigenvalues at x_values[0]
+            mode: ModeParam object, containing wave_number_x, n_coll, scale_l
             maxn_coll: maximum number of collocation points to consider
             label: group name to create in HDF5 file (if saving to file)
 
@@ -378,16 +354,20 @@ class ModeTracker():
 
         for j in range(0, len(e_val)):
             if self.t_file is not None:
+                # Save starting point
                 save_xv = self.get_save_xvalue(x_val[0])
-                self.t_file.save_single(save_xv, ret[j,0], self.sbx.n_coll,
-                                    self.sbx.scale_l, label)
+                self.t_file.save_single(save_xv, ret[j,0], mode.param['n_coll'],
+                                        mode.param['scale_l'], label)
             for i in range(1, len(x_val)):
-                self.adjust_sbox(x_val[i])
+                # Change sbox parameter
+                mode = self.adjust_sbox(x_val[i], mode)
 
+                # Check if present in file
                 y_val = None
                 if self.t_file is not None:
                     y_val = self.t_file.get_single(self.get_save_xvalue(x_val[i]), label)
 
+                # If not in file, calculate
                 if y_val is None:
                     # Guess where next ev could be
                     target = ret[j, i-1]
@@ -397,33 +377,41 @@ class ModeTracker():
                               interp1d(x_val[0:i], ret[j, 0:i], \
                                        fill_value='extrapolate')(x_val[i])
 
-                    ret[j, i], n_coll, scale_l = self.safe_step(target, maxn_coll=maxn_coll)
+                    ret[j, i], mode = \
+                        self.safe_step(target, mode, maxn_coll=maxn_coll)
 
 
                     if self.t_file is not None:
                         save_xv = self.get_save_xvalue(x_val[i])
-                        self.t_file.save_single(save_xv, ret[j,i], n_coll, scale_l, label)
+                        self.t_file.save_single(save_xv, ret[j,i],
+                                                mode.param['n_coll'],
+                                                mode.param['scale_l'],
+                                                label)
                 else:
-                    ret[j, i], self.sbx.n_coll, self.sbx.scale_l = y_val
+                    ret[j, i], mode.param['n_coll'], mode.param['scale_l'] = y_val
 
-                print(i, self.sbx.n_coll, self.sbx.scale_l, x_val[i], ret[j, i], flush=True)
+                print(i, mode.param, x_val[i], ret[j, i], flush=True)
 
         return ret
 
 class WaveNumberTracker(ModeTracker):
     """Track modes across wave number space"""
-    def adjust_sbox(self, x_value):
+    def adjust_sbox(self, x_value, mode):
         """Adjust the wave number in the StratBox"""
-        self.sbx.kx = x_value
+        mode.param['wave_number_x'] = x_value
+        return mode
+
 
 class StokesRangeTracker(ModeTracker):
     """Track modes across Stokes range space"""
-    def adjust_sbox(self, x_value):
+    def adjust_sbox(self, x_value, mode):
         """Adjust Stokes range in StratBox"""
 
         # Vary st_min, keep st_max fixed
         st_max = self.sbx.param['stokes_range'][1]
         self.sbx.set_stokes_range([x_value, st_max])
+
+        return mode
 
     def get_save_xvalue(self, x_value):
         """Save the base 10 log times 1000"""
@@ -432,15 +420,19 @@ class StokesRangeTracker(ModeTracker):
 
 class DustFluidTracker(ModeTracker):
     """Track modes while varying the number of dust fluids"""
-    def adjust_sbox(self, x_value):
+    def adjust_sbox(self, x_value, mode):
         """Set number of dust fluids in StratBox"""
         self.sbx.set_n_dust(x_value)
 
+        return mode
+
 class ViscosityTracker(ModeTracker):
     """Track modes varying the viscosity"""
-    def adjust_sbox(self, x_value):
+    def adjust_sbox(self, x_value, mode):
         """Set new viscosity in StratBox"""
         self.sbx.set_viscosity(x_value)
+
+        return mode
 
     def get_save_xvalue(self, x_value):
         """Save the base 10 log times 1000"""

@@ -8,40 +8,67 @@ from .tools import norm_factor_dust_density
 from .tracker import TrackerFile
 from .strat_mode import StratBox
 
-def plot_equilibrium(sb):
-    zmax = \
-      0.05*np.sqrt(sb.param['viscous_alpha']/1.0e-6)*\
-        np.sqrt(0.01/sb.equilibrium.stokes_numbers[-1])
+def plot_equilibrium(sb, fig=None, color_start=0, linestyle='-', label='',
+                     reference_stokes=None):
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    plt.rcParams.update({'axes.labelsize': 'large'})
+    plt.rc('font', family='serif')
+
+    if reference_stokes is None:
+        zmax = \
+          0.05*np.sqrt(sb.param['viscous_alpha']/1.0e-6)*\
+          np.sqrt(0.01/sb.equilibrium.stokes_numbers[-1])
+    else:
+        zmax = \
+          0.05*np.sqrt(sb.param['viscous_alpha']/1.0e-6)*\
+          np.sqrt(0.01/reference_stokes)
+
     z = np.linspace(-zmax, zmax, 1000)
 
     rhog, sigma, mu, dust_rho, vx, vy, vz, ux, uy, uz = \
         sb.equilibrium.get_state(z)
 
-    fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, sharex=True)
+    if fig is None:
+        fig, ax = plt.subplots(5, 1, sharex=True, figsize=[6.4,10.4])
+    else:
+        ax = fig.axes
 
-    plt.suptitle('Equilibrium solution')
+    #plt.suptitle('Equilibrium solution')
 
-    ax1.set_ylabel(r'$\mu$')
-    ax1.plot(z, dust_rho, linewidth=2)
+    ax[0].set_ylabel(r'$\mu$')
+    ax[0].plot(z, dust_rho, linewidth=2,
+               linestyle=linestyle,
+               color=colors[color_start],
+               label=label)
+    #for i in range(0, len(uz)):
+    #    ax[0].plot(z, mu[i,:], linestyle=linestyle, color=colors[(color_start+i+1) % len(colors)])
 
-    ax2.set_ylabel(r'$\rho_{\rm g}$')
-    ax2.plot(z, rhog)
+    #ax[0].set_yscale('log')
+    #ax[0].set_ylim([1.0e-3,None])
 
-    ax3.set_ylabel(r'$u_z$')
+    ax[1].set_ylabel(r'$\rho_{\rm g}$')
+    ax[1].plot(z, rhog, linestyle=linestyle, color=colors[color_start])
+
+    ax[2].set_ylabel(r'$u_z$')
     for i in range(0, len(uz)):
-        ax3.plot(z, uz[i,:])
+        ax[2].plot(z, uz[i,:], linestyle=linestyle, color=colors[(color_start+i+1) % len(colors)])
 
-    ax4.set_ylabel(r'$u_x, v_x$')
+    ax[3].set_ylabel(r'$u_x, v_x$')
     for i in range(0, len(uz)):
-        ax4.plot(z, ux[i,:])
-    ax4.plot(z, vx)
+        ax[3].plot(z, ux[i,:], linestyle=linestyle, color=colors[(color_start+i+1) % len(colors)])
+    ax[3].plot(z, vx, linestyle=linestyle, color=colors[color_start])
 
-    ax5.set_ylabel(r'$u_y, v_y$')
+    ax[4].set_ylabel(r'$u_y, v_y$')
     for i in range(0, len(uz)):
-        ax5.plot(z, uy[i,:])
-    ax5.plot(z, vy)
+        ax[4].plot(z, uy[i,:],
+                   linestyle=linestyle,
+                   color=colors[(color_start+1+i) % len(colors)],
+                   label=r'St={:.4f}'.format(sb.equilibrium.stokes_numbers[i]))
+    ax[4].plot(z, vy, linestyle=linestyle, color=colors[color_start], label='gas')
 
-    ax5.set_xlabel(r'$z/H$')
+    ax[4].legend()
+
+    ax[4].set_xlabel(r'$z/H$')
     plt.tight_layout()
 
     return fig

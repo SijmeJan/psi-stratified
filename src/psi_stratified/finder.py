@@ -48,7 +48,7 @@ class ModeFinder():
 
     def find_growing_at_real_part(self, real_part,
                                   imag_range,
-                                  wave_number_x, n_coll, scale_l,
+                                  mode_param,
                                   n_eig=10,
                                   flip_real_imag_flag=False):
         """Search around given real part for growing modes."""
@@ -69,11 +69,7 @@ class ModeFinder():
                 sigma = imag_part + 1j*real_part
 
             eig, vec, rad = \
-              self.sbx.find_eigenvalues(wave_number_x=wave_number_x,
-                                       resolution=n_coll,
-                                       scale_factor=scale_l,
-                                       sigma=sigma,
-                                       n_eig=n_eig)
+              self.sbx.find_eigenvalues(mode_param, sigma=sigma, n_eig=n_eig)
 
             centres.append(sigma)
             radii.append(rad)

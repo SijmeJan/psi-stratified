@@ -750,7 +750,7 @@ class Equilibrium():
         # Set dust to gas ratio to required value
         self.eq_mu.midplane_dg = res
 
-    def get_state(self, z_coord):
+    def get_state(self, z_coord, eta=0.05):
         """Get full equilibrium state
 
         Args:
@@ -766,7 +766,7 @@ class Equilibrium():
         dg_ratio = self.eq_mu.evaluate(z_coord)
         dust_rho = self.eq_sigma.integrate_stokes(z_coord)
         gas_vx, gas_vy, gas_vz, dust_ux, dust_uy, dust_uz = \
-            self.evaluate_velocities(z_coord)
+            self.evaluate_velocities(z_coord, eta=eta)
 
         return rhog, sigma, dg_ratio, dust_rho, \
             gas_vx, gas_vy, gas_vz, dust_ux, dust_uy, dust_uz
@@ -782,15 +782,16 @@ class Equilibrium():
         self.eq_vel.solve(n_coll, neglect_gas_viscosity,
                           self.eq_mu, self.eq_rhog)
 
-    def evaluate_velocities(self, z_coord, k=0):
+    def evaluate_velocities(self, z_coord, k=0, eta=0.05):
         """Evaluate solution for velocities
 
         Args:
             z_coord: vertical coordinate
             k: optional, order of derivative to compute (0, 1 or 2)
+            eta: optional, radial pressure gradient parameter
         """
 
         gas_vx, gas_vy, gas_vz, dust_ux, dust_uy, dust_uz = \
-            self.eq_vel.evaluate(z_coord, k=k)
+            self.eq_vel.evaluate(z_coord, k=k, eta=eta)
 
         return gas_vx, gas_vy, gas_vz, dust_ux, dust_uy, dust_uz
